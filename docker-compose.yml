@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ipo
+      POSTGRES_USER: ipo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ipo-local-password}
+    volumes: ["ipo_pg:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ipo"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  web:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://ipo:${POSTGRES_PASSWORD:-ipo-local-password}@db:5432/ipo
+    ports: ["8000:8000"]
+    depends_on:
+      db: {condition: service_healthy}
+    restart: unless-stopped
+  worker:
+    build: .
+    command: ["python","-m","app.worker"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://ipo:${POSTGRES_PASSWORD:-ipo-local-password}@db:5432/ipo
+    depends_on:
+      db: {condition: service_healthy}
+    restart: unless-stopped
+volumes:
+  ipo_pg:
