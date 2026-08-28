@@ -119,11 +119,14 @@ def ingest_nse(db:Session):
     return run
 
 def ingest_nse_history(db:Session,max_reports=3):
-    run=IngestionRun(source="NSE Primary Market Reports",status="running");db.add(run);db.commit();seen=changed=0
+    run=IngestionRun(source="NSE Primary Market Reports",status="running");db.add(run);db.commit();seen=changed=0;warnings=[]
     try:
         links=nse.fetch_archive_links()[:max_reports]
-        with httpx.Client(headers={"User-Agent":"Mozilla/5.0 IPOIntelligence/2.0"},timeout=30,follow_redirects=True) as c:
-            for label,url in links:
+    except Exception as e:
+        run.status="error";run.error=str(e)[:4000];run.finished_at=now();db.commit();return run
+    with httpx.Client(headers={"User-Agent":"Mozilla/5.0 IPOIntelligence/2.0"},timeout=30,follow_redirects=True) as c:
+        for label,url in links:
+            try:
                 r=c.get(url);r.raise_for_status()
                 for x in nse.parse_monthly_xlsx(r.content):
                     seen+=1;row={"company":x["company"],"symbol":x.get("symbol","") or "","country":"India","exchange":"NSE/BSE","status":"Listed","currency":"INR","final_price":x.get("issue_price"),"listing_date":x.get("listing_date","") or "","issue_size_m":x.get("issue_size"),"raw":x.get("raw",{})}
@@ -133,9 +136,10 @@ def ingest_nse_history(db:Session,max_reports=3):
                         ret=(x["listing_price"]/x["issue_price"]-1)*100
                         existing=db.scalar(select(PerformanceSnapshot).where(PerformanceSnapshot.ipo_id==ipo.id,PerformanceSnapshot.source_url==url,PerformanceSnapshot.listing_return_pct==ret))
                         if not existing: db.add(PerformanceSnapshot(ipo_id=ipo.id,as_of_date=now().date().isoformat(),close_price=x["listing_price"],listing_return_pct=ret,source_name="NSE Primary Market Report",source_url=url))
-        run.status="ok";run.rows_seen=seen;run.rows_changed=changed;run.finished_at=now();db.commit()
-    except Exception as e:
-        db.rollback();run=db.get(IngestionRun,run.id);run.status="error";run.error=str(e)[:4000];run.finished_at=now();db.commit()
+                db.commit()
+            except Exception as e:
+                db.rollback();warnings.append(f"{label}: {type(e).__name__}: {e}")
+    run=db.get(IngestionRun,run.id);run.status="ok" if not warnings else "partial";run.error=" | ".join(warnings)[:4000];run.rows_seen=seen;run.rows_changed=changed;run.finished_at=now();db.commit()
     return run
 
 def refresh_market_performance(db:Session,limit=40):
