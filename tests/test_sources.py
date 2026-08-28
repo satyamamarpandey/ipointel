@@ -12,6 +12,15 @@ def test_archive_links():
     html='<a href="https://nsearchives.nseindia.com/a.xlsx">Primary Market Monthly Report - July 2026 (.xlsx)</a>'
     assert archive_links(html)[0][1].endswith('a.xlsx')
 
+def test_latest_fact_reads_dei_shares_outstanding():
+    from app.services.sec import latest_fact
+    facts={"facts":{"dei":{"EntityCommonStockSharesOutstanding":{"units":{"shares":[
+        {"val":50_000_000,"filed":"2026-01-01","end":"2025-12-31"},
+        {"val":52_500_000,"filed":"2026-03-01","end":"2026-02-28"},
+    ]}}}}}
+    shares_m=latest_fact(facts,["EntityCommonStockSharesOutstanding"],taxonomies=("dei",))
+    assert round(shares_m,2)==52.5
+
 def test_sec_master_and_priced_filter():
     from app.services.sec import parse_master_index, parse_priced_ipo
     text='CIK|Company Name|Form Type|Date Filed|Filename\n123|Example Inc|424B4|2026-08-20|edgar/data/123/a.txt\n'

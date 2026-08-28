@@ -56,9 +56,9 @@ def fetch_companyfacts(cik:str,user_agent:str):
     with _client(user_agent) as c:
         r=c.get(f"{DATA}/api/xbrl/companyfacts/CIK{str(cik).zfill(10)}.json"); r.raise_for_status(); return r.json()
 
-def latest_fact(facts:dict, concepts:list[str]):
+def latest_fact(facts:dict, concepts:list[str], taxonomies=("us-gaap","ifrs-full")):
     candidates=[]
-    for tax in ("us-gaap","ifrs-full"):
+    for tax in taxonomies:
         for concept in concepts:
             node=facts.get("facts",{}).get(tax,{}).get(concept,{})
             for unit,vals in node.get("units",{}).items():
@@ -88,6 +88,7 @@ def enrich(row:dict,user_agent:str):
             out["cfo_m"]=latest_fact(f,["NetCashProvidedByUsedInOperatingActivities"])
             out["cash_m"]=latest_fact(f,["CashAndCashEquivalentsAtCarryingValue","CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"])
             out["debt_m"]=latest_fact(f,["LongTermDebtCurrent","LongTermDebtNoncurrent","LongTermDebt"])
+            out["post_issue_shares_m"]=latest_fact(f,["EntityCommonStockSharesOutstanding"],taxonomies=("dei",))
         except Exception as e: flags.append(f"SEC XBRL enrichment failed: {type(e).__name__}")
     out["data_flags"]=flags; return out
 
