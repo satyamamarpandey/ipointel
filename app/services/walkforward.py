@@ -8,7 +8,7 @@ evaluation bucketed by listing year, not train/test weight refitting. Weights in
 app/scoring.py are never adjusted based on these results.
 
 MIN_SAMPLE gates every statistic: nothing is reported for a bucket below it."""
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from statistics import mean, median
 from ..models import IPO, ScoreSnapshot, PerformanceSnapshot
@@ -18,11 +18,21 @@ MIN_SAMPLE = 20
 BANDS = [(90, 101), (80, 90), (70, 80), (60, 70), (50, 60), (0, 50)]
 BAND_LABELS = ["90-100", "80-89", "70-79", "60-69", "50-59", "<50"]
 
-def _earliest_score(db: Session, ipo_id: int) -> ScoreSnapshot | None:
-    return db.scalar(select(ScoreSnapshot).where(ScoreSnapshot.ipo_id == ipo_id).order_by(ScoreSnapshot.created_at.asc()).limit(1))
+def _earliest_scores_by_ipo(db: Session, ipo_ids: list[int]) -> dict[int, ScoreSnapshot]:
+    if not ipo_ids:
+        return {}
+    sub = (select(ScoreSnapshot.ipo_id, func.min(ScoreSnapshot.created_at).label("min_at"))
+           .where(ScoreSnapshot.ipo_id.in_(ipo_ids)).group_by(ScoreSnapshot.ipo_id).subquery())
+    rows = db.scalars(select(ScoreSnapshot).join(sub, (ScoreSnapshot.ipo_id == sub.c.ipo_id) & (ScoreSnapshot.created_at == sub.c.min_at))).all()
+    return {r.ipo_id: r for r in rows}
 
-def _latest_perf(db: Session, ipo_id: int) -> PerformanceSnapshot | None:
-    return db.scalar(select(PerformanceSnapshot).where(PerformanceSnapshot.ipo_id == ipo_id).order_by(PerformanceSnapshot.created_at.desc()).limit(1))
+def _latest_perf_by_ipo(db: Session, ipo_ids: list[int]) -> dict[int, PerformanceSnapshot]:
+    if not ipo_ids:
+        return {}
+    sub = (select(PerformanceSnapshot.ipo_id, func.max(PerformanceSnapshot.created_at).label("max_at"))
+           .where(PerformanceSnapshot.ipo_id.in_(ipo_ids)).group_by(PerformanceSnapshot.ipo_id).subquery())
+    rows = db.scalars(select(PerformanceSnapshot).join(sub, (PerformanceSnapshot.ipo_id == sub.c.ipo_id) & (PerformanceSnapshot.created_at == sub.c.max_at))).all()
+    return {r.ipo_id: r for r in rows}
 
 def _auc(pairs: list[tuple[float, int]]) -> float | None:
     """Mann-Whitney U based AUC — no sklearn dependency."""
@@ -144,12 +154,15 @@ def _by_year(rows: list[dict], return_key: str) -> list[dict]:
 
 def _collect(db: Session, country: str) -> list[dict]:
     ipos = db.scalars(select(IPO).where(IPO.country == country, IPO.status == "Listed")).all()
+    ipo_ids = [ipo.id for ipo in ipos]
+    scores = _earliest_scores_by_ipo(db, ipo_ids)
+    perfs = _latest_perf_by_ipo(db, ipo_ids)
     rows = []
     for ipo in ipos:
-        sc = _earliest_score(db, ipo.id)
-        pf = _latest_perf(db, ipo.id)
+        sc = scores.get(ipo.id)
         if not sc:
             continue
+        pf = perfs.get(ipo.id)
         ld = parse_date(ipo.listing_date)
         rows.append({
             "ipo_id": ipo.id, "overall": sc.overall_score, "listing": sc.listing_score, "long_term": sc.long_term_score,
