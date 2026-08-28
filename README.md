@@ -12,6 +12,8 @@ A code-first India + U.S. IPO research platform. It has a public early-access pa
 - Official NSE Primary Market monthly report archive parser for historical ingestion.
 - Optional secondary Yahoo market-price fallback that is always labeled as a lower-tier source.
 - Deterministic 0-100 overall/listing/long-term model; valuation classification; confidence gate; field-level provenance; score snapshots; “what changes the verdict”.
+- Evidence-backed red flag engine, cross-source/cross-field contradiction engine, scenario + reverse DCF valuation, quantified recommendation-sensitivity thresholds, historical nearest-neighbour IPO matching, and point-in-time score-change attribution — all deterministic, all derived from structured fields with provenance, none LLM-generated.
+- Walk-forward model performance evaluation split by country and by listing/long-term horizon (`/api/model-performance`), gated at a minimum sample size per band — nothing is displayed below that gate.
 - Historical performance storage and calibration/Brier-score panel. It explicitly refuses to label the model calibrated when the realized sample is too small.
 - FastAPI API docs at `/api/docs`, health checks, tests, GitHub Actions, Docker Compose, Postgres production database and a separate ingestion worker.
 
@@ -30,7 +32,9 @@ cp .env.example .env
 ./run_local.sh
 ```
 
-Open http://localhost:8000 and http://localhost:8000/app.
+Open http://localhost:8010 and http://localhost:8010/app. (Port 8010 is used because
+8000 is a common default that's easy to collide with another local process; change
+`PORT` in `run_local.bat` and `PUBLIC_BASE_URL` in `.env` together if you want 8000.)
 
 ## Production run
 
@@ -86,3 +90,20 @@ docker compose -f docker-compose.production.yml up -d --build
 ```
 
 Caddy obtains/renews TLS certificates and reverse-proxies to the FastAPI web service. A PostgreSQL backup helper is included at `deploy/backup_postgres.sh`.
+
+## Browser QA
+
+`tests/` is API-level only (no browser). A real-Chromium smoke suite lives outside
+pytest's `testpaths` at `tests_browser/qa_smoke.py` — it needs Playwright's browser
+binary, which is too heavy to install on every `pytest` run:
+
+```bash
+.venv/Scripts/python.exe -m pip install playwright
+.venv/Scripts/python.exe -m playwright install chromium
+.venv/Scripts/python.exe tests_browser/qa_smoke.py http://localhost:8010
+```
+
+It drives the landing page and dashboard at 4 viewport widths (1440/1024/768/390),
+exercises every tab, opens an IPO detail and its lazy-loaded panes, and runs the
+waitlist success/invalid/duplicate flows, failing on any console error, failed
+`/api/*` request, or >4px horizontal overflow.
