@@ -16,6 +16,13 @@ from .schemas import WaitlistIn,WaitlistOut
 from .services.emailer import send_welcome
 from .services.backtest import summarize as backtest_summary
 from .services.pipeline import refresh_all
+from .services import redflags as redflags_svc
+from .services import contradictions as contradictions_svc
+from .services import dcf as dcf_svc
+from .services import similarity as similarity_svc
+from .services import sensitivity as sensitivity_svc
+from .services import changes as changes_svc
+from .services import walkforward as walkforward_svc
 
 S=get_settings(); BASE=Path(__file__).parent; STATIC=BASE/"static"
 @asynccontextmanager
@@ -115,7 +122,33 @@ def ipo_detail(ipo_id:int,db:Session=Depends(db_dep)):
     out["provenance"]=[{"field":p.field_name,"source":p.source_name,"url":p.source_url,"tier":p.source_tier,"value":p.observed_value,"observed_at":p.observed_at.isoformat(),"conflict":p.is_conflict} for p in sorted(ipo.provenance,key=lambda p:(p.source_tier,p.field_name))]
     hist=db.scalars(select(ScoreSnapshot).where(ScoreSnapshot.ipo_id==ipo.id).order_by(ScoreSnapshot.created_at.asc())).all()
     out["score_history"]=[{"at":x.created_at.isoformat(),"overall":x.overall_score,"listing":x.listing_score,"long_term":x.long_term_score,"confidence":x.confidence,"recommendation":x.recommendation} for x in hist[-30:]]
+    flags=redflags_svc.evaluate(ipo)
+    out["red_flags"]={"summary":redflags_svc.summarize(flags),"flags":flags}
+    out["contradictions"]=contradictions_svc.evaluate(ipo,ipo.provenance)
+    out["sensitivity"]=sensitivity_svc.analyze(ipo)
     return out
+
+@app.get("/api/ipos/{ipo_id}/changes")
+def ipo_changes(ipo_id:int,db:Session=Depends(db_dep)):
+    ipo=db.get(IPO,ipo_id)
+    if not ipo:raise HTTPException(404,"IPO not found")
+    return {"ipo_id":ipo_id,"timeline":changes_svc.timeline(db,ipo_id)}
+
+@app.get("/api/ipos/{ipo_id}/similar")
+def ipo_similar(ipo_id:int,db:Session=Depends(db_dep)):
+    ipo=db.get(IPO,ipo_id)
+    if not ipo:raise HTTPException(404,"IPO not found")
+    return similarity_svc.find_similar(db,ipo)
+
+@app.get("/api/ipos/{ipo_id}/valuation")
+def ipo_valuation_detail(ipo_id:int,db:Session=Depends(db_dep)):
+    ipo=db.get(IPO,ipo_id)
+    if not ipo:raise HTTPException(404,"IPO not found")
+    return {"scenario_dcf":dcf_svc.scenario_dcf(ipo),"reverse_dcf":dcf_svc.reverse_dcf(ipo)}
+
+@app.get("/api/model-performance")
+def model_performance(db:Session=Depends(db_dep)):
+    return walkforward_svc.evaluate(db)
 
 @app.get("/api/performance")
 def performance(country:str="all",limit:int=Query(200,ge=1,le=500),db:Session=Depends(db_dep)):
