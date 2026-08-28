@@ -14,11 +14,29 @@ def external_key(row):
     if row.get("country","").lower()=="india":return "IN:"+(row.get("symbol") or row.get("company","")).strip().lower()
     return "US:"+(row.get("cik") or row.get("symbol") or row.get("company","")).strip().lower()
 
+def _numeric(v):
+    try:return float(v)
+    except (TypeError,ValueError):return None
+
 def add_provenance(db:Session,ipo:IPO,field:str,value,source_name,url,tier:int):
     if value in (None,""):return
     q=db.scalar(select(Provenance).where(Provenance.ipo_id==ipo.id,Provenance.field_name==field,Provenance.source_url==url))
-    if q:q.observed_value=str(value);q.observed_at=now();q.source_tier=tier
-    else:db.add(Provenance(ipo_id=ipo.id,field_name=field,source_name=source_name,source_url=url,source_tier=tier,observed_value=str(value)))
+    if q:q.observed_value=str(value);q.observed_at=now();q.source_tier=tier;q.source_name=source_name
+    else:q=Provenance(ipo_id=ipo.id,field_name=field,source_name=source_name,source_url=url,source_tier=tier,observed_value=str(value));db.add(q)
+    db.flush()
+    others=db.scalars(select(Provenance).where(Provenance.ipo_id==ipo.id,Provenance.field_name==field,Provenance.source_name!=source_name)).all()
+    new_val=_numeric(value)
+    conflict=False
+    if new_val is not None:
+        for o in others:
+            ov=_numeric(o.observed_value)
+            if ov is None:continue
+            base=max(abs(new_val),abs(ov),1e-9)
+            if abs(new_val-ov)/base>0.04:
+                conflict=True;o.is_conflict=True
+            else:
+                o.is_conflict=False
+    q.is_conflict=conflict
 
 def upsert_ipo(db:Session,row:dict,source_name:str,source_url:str,tier:int):
     key=external_key(row); ipo=db.scalar(select(IPO).where(IPO.external_key==key)); created=False
@@ -124,14 +142,39 @@ def refresh_market_performance(db:Session,limit=40):
     s=get_settings()
     if not s.allow_secondary_market_data:return 0
     ipos=db.scalars(select(IPO).where(IPO.status=="Listed",IPO.symbol!="").order_by(IPO.updated_at.desc()).limit(limit)).all();n=0
+    bench_cache:dict[str,dict]={}
+    def bench_return(country,listing_dt,window_days):
+        key=country.lower()
+        if key not in bench_cache:
+            try:bench_cache[key]=market.fetch_benchmark_history(country) or {}
+            except Exception:bench_cache[key]={}
+        h=bench_cache[key]
+        bars=h.get("prices") or []
+        if not bars or listing_dt is None:return None
+        listing_ts=listing_dt.timestamp()
+        start=market.bar_on_or_after(bars,listing_ts)
+        end=market.bar_nearest_before_or_on(bars,listing_ts+window_days*86400)
+        if not start or not end or not start.get("close") or end["ts"]<=start["ts"]:return None
+        return (end["close"]/start["close"]-1)*100
     for ipo in ipos:
         try:
             h=market.fetch_yahoo_history(ipo.symbol,ipo.country)
-            prices=h["prices"]
-            if not prices:continue
-            close=prices[-1]["close"]; base=ipo.final_price or ipo.price_high
-            ret=(close/base-1)*100 if base else None
-            snap=PerformanceSnapshot(ipo_id=ipo.id,as_of_date=datetime.fromtimestamp(prices[-1]["ts"],tz=timezone.utc).date().isoformat(),close_price=close,listing_return_pct=ret,source_name="Yahoo Finance fallback",source_url=h["url"])
+            bars=h["prices"]
+            if not bars:continue
+            listing_dt=market.parse_date(ipo.listing_date)
+            wr=market.windowed_returns(bars,listing_dt) if listing_dt else {}
+            latest=bars[-1]
+            snap=PerformanceSnapshot(
+                ipo_id=ipo.id,
+                as_of_date=datetime.fromtimestamp(latest["ts"],tz=timezone.utc).date().isoformat(),
+                close_price=latest["close"],
+                listing_return_pct=wr.get("listing_day_return_pct"),
+                return_1m_pct=wr.get("return_1m_pct"),
+                return_6m_pct=wr.get("return_6m_pct"),
+                return_12m_pct=wr.get("return_12m_pct"),
+                benchmark_return_pct=bench_return(ipo.country,listing_dt,365) if listing_dt else None,
+                source_name="Yahoo Finance fallback",source_url=h["url"],
+            )
             db.add(snap);n+=1
         except Exception:continue
     db.commit();return n
