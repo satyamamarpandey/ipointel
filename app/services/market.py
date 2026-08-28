@@ -10,9 +10,9 @@ def yahoo_symbol(symbol:str,country:str):
     if country.lower()=="india" and not symbol.endswith((".NS",".BO")): return symbol+".NS"
     return symbol
 
-def fetch_yahoo_history(symbol:str,country:str,period1:int=0,period2:int|None=None):
+def fetch_yahoo_history(symbol:str,country:str,period1:int=0,period2:int|None=None,raw_symbol:bool=False):
     """Secondary fallback. Every value returned from here must be labeled Tier 3 in provenance."""
-    sym=yahoo_symbol(symbol,country); period2=period2 or int(datetime.now().timestamp())
+    sym=symbol if raw_symbol else yahoo_symbol(symbol,country); period2=period2 or int(datetime.now().timestamp())
     url=f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?period1={period1}&period2={period2}&interval=1d&events=history"
     with httpx.Client(headers={"User-Agent":"Mozilla/5.0 IPOIntelligence/2.0"},timeout=15,follow_redirects=True) as c:
         r=c.get(url);r.raise_for_status();j=r.json();res=j.get("chart",{}).get("result") or []
@@ -25,7 +25,7 @@ def fetch_yahoo_history(symbol:str,country:str,period1:int=0,period2:int|None=No
 def fetch_benchmark_history(country:str):
     sym=BENCHMARKS.get(country.lower())
     if not sym:return None
-    return fetch_yahoo_history(sym,country)
+    return fetch_yahoo_history(sym,country,raw_symbol=True)
 
 _DATE_FORMATS=("%Y-%m-%d","%Y-%m-%d %H:%M:%S","%d-%b-%Y","%d %b %Y","%d/%m/%Y")
 
