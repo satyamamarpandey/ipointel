@@ -9,7 +9,10 @@ from app.main import app
 
 @pytest.fixture(autouse=True)
 def clean_db():
-    Base.metadata.drop_all(bind=engine);Base.metadata.create_all(bind=engine);yield
+    Base.metadata.drop_all(bind=engine);Base.metadata.create_all(bind=engine)
+    from app.main import rate as _rate
+    _rate.clear()  # TestClient reuses one fake IP across every test in the run
+    yield
 @pytest.fixture
 def client():return TestClient(app)
 @pytest.fixture

@@ -60,6 +60,66 @@ def test_ipo_similar_endpoint_handles_no_peers(client,db):
     r=client.get(f'/api/ipos/{ipo.id}/similar');assert r.status_code==200
     assert r.json()['available'] is False
 
+def test_waitlist_signup_queues_welcome_email(client,db):
+    from app.models import EmailMessage,WaitlistLead
+    from sqlalchemy import select
+    p={'email':'emailqueue@example.com','name':'E','investor_type':'retail','markets':'both','consent':True,'website':''}
+    r=client.post('/api/waitlist',json=p);assert r.status_code==200
+    lead=db.scalar(select(WaitlistLead).where(WaitlistLead.email=='emailqueue@example.com'))
+    msg=db.scalar(select(EmailMessage).where(EmailMessage.lead_id==lead.id))
+    assert msg is not None and msg.template=='welcome' and msg.status=='QUEUED'
+
+def test_signup_succeeds_even_though_email_provider_disabled(client):
+    # ENABLE_EMAIL is false in the test environment (conftest doesn't turn it on) -
+    # signup must still succeed; email just stays queued, never blocking or erroring the request.
+    p={'email':'provideroutage@example.com','name':'P','investor_type':'retail','markets':'both','consent':True,'website':''}
+    r=client.post('/api/waitlist',json=p)
+    assert r.status_code==200 and r.json()['ok'] is True
+
+def test_preferences_get_and_update(client,db):
+    from app.models import WaitlistLead
+    from sqlalchemy import select
+    p={'email':'prefs@example.com','name':'Pr','investor_type':'retail','markets':'both','consent':True,'website':''}
+    client.post('/api/waitlist',json=p)
+    lead=db.scalar(select(WaitlistLead).where(WaitlistLead.email=='prefs@example.com'))
+    g=client.get('/api/preferences',params={'token':lead.unsubscribe_token})
+    assert g.status_code==200 and g.json()['digest_weekly'] is False
+    u=client.post('/api/preferences',params={'token':lead.unsubscribe_token},json={'digest_weekly':True,'alert_new_ipo':True})
+    assert u.status_code==200 and u.json()['digest_weekly'] is True
+    db.refresh(lead);assert lead.digest_weekly is True
+
+def test_preferences_invalid_token_404(client):
+    assert client.get('/api/preferences',params={'token':'not-a-real-token'}).status_code==404
+
+def test_unsubscribe_then_no_future_alert_email(client,db):
+    from app.models import WaitlistLead,IPO,ScoreSnapshot,EmailMessage
+    from app.services import alerts as alerts_svc
+    from sqlalchemy import select
+    p={'email':'unsubalert@example.com','name':'U','investor_type':'retail','markets':'both','consent':True,'website':''}
+    client.post('/api/waitlist',json=p)
+    lead=db.scalar(select(WaitlistLead).where(WaitlistLead.email=='unsubalert@example.com'))
+    assert client.get('/unsubscribe',params={'token':lead.unsubscribe_token}).status_code==200
+    db.refresh(lead);assert lead.consent is False
+    ipo=IPO(external_key='unsub-ipo',company='UnsubCo',country='India',currency='INR');db.add(ipo);db.commit();db.refresh(ipo)
+    sc=ScoreSnapshot(ipo_id=ipo.id,model_version='v',overall_score=75,listing_score=70,long_term_score=72,confidence=80,
+        listing_gain_probability=70,long_term_outperform_probability=70,recommendation='INVEST SELECTIVELY',horizon='BOTH',
+        valuation_label='FAIR',pillars={},rationale=[],risks=[],what_changes_verdict=[])
+    db.add(sc);db.commit()
+    alerts_svc.queue_score_alerts(db);db.commit()
+    assert db.scalar(select(EmailMessage).where(EmailMessage.lead_id==lead.id,EmailMessage.template=='score_alert')) is None
+
+def test_webhook_rejects_unsigned_payload(client):
+    r=client.post('/api/webhooks/resend',json={'type':'email.sent','data':{}})
+    assert r.status_code==401
+
+def test_admin_email_stats_requires_token(client):
+    assert client.get('/api/admin/email-stats').status_code==403
+
+def test_source_health_includes_email(client):
+    rows=client.get('/api/source-health').json()
+    names=[r['source'] for r in rows]
+    assert any('Email' in n for n in names)
+
 def test_ipo_valuation_endpoint(client,db):
     ipo=_seed_ipo(db)
     r=client.get(f'/api/ipos/{ipo.id}/valuation');assert r.status_code==200

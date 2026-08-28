@@ -5,3 +5,6 @@ __pycache__
 .pytest_cache
 data/*.db
 *.zip
+bin
+freeresend
+logs

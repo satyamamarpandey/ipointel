@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio,secrets,time,csv,io
+import asyncio,secrets,time,csv,io,json
 from contextlib import asynccontextmanager
 from collections import defaultdict,deque
 from datetime import datetime,timezone,timedelta
@@ -11,9 +11,11 @@ from sqlalchemy import select,func,or_
 from sqlalchemy.orm import Session
 from .config import get_settings
 from .db import init_db,SessionLocal
-from .models import IPO,ScoreSnapshot,Provenance,PerformanceSnapshot,IngestionRun,WaitlistLead
+from .models import IPO,ScoreSnapshot,Provenance,PerformanceSnapshot,IngestionRun,WaitlistLead,EmailMessage
 from .schemas import WaitlistIn,WaitlistOut
-from .services.emailer import send_welcome
+from .services.email_queue import enqueue,process_queue
+from .services import email_provider as ep
+from .services import webhooks as webhooks_svc
 from .services.backtest import summarize as backtest_summary
 from .services.pipeline import refresh_all
 from .services import redflags as redflags_svc
@@ -53,6 +55,8 @@ def dashboard():return FileResponse(STATIC/"app.html")
 def privacy():return FileResponse(STATIC/"privacy.html")
 @app.get("/terms")
 def terms():return FileResponse(STATIC/"terms.html")
+@app.get("/preferences")
+def preferences_page():return FileResponse(STATIC/"preferences.html")
 @app.middleware("http")
 async def security_headers(request:Request,call_next):
     response=await call_next(request)
@@ -79,12 +83,16 @@ def waitlist(payload:WaitlistIn,request:Request,db:Session=Depends(db_dep)):
     email=str(payload.email).strip().lower();existing=db.scalar(select(WaitlistLead).where(WaitlistLead.email==email))
     if existing:
         if not existing.consent:
-            existing.consent=True;existing.markets=payload.markets;existing.investor_type=payload.investor_type;db.commit();send_welcome(email,payload.name,existing.referral_code,existing.unsubscribe_token)
+            existing.consent=True;existing.markets=payload.markets;existing.investor_type=payload.investor_type;existing.suppressed=False;db.commit()
+            enqueue(db,existing,"welcome",ep.PRIORITY_TRANSACTIONAL);db.commit()
             return WaitlistOut(ok=True,message="You're back on the early-access list.",referral_code=existing.referral_code)
         return WaitlistOut(ok=True,message="You're already on the early-access list.",referral_code=existing.referral_code)
     code=secrets.token_urlsafe(6).replace("-","").replace("_","")[:8]
     lead=WaitlistLead(email=email,name=payload.name.strip(),investor_type=payload.investor_type,markets=payload.markets,consent=payload.consent,referral_code=code,referred_by=payload.referred_by,unsubscribe_token=secrets.token_urlsafe(24),source=payload.source)
-    db.add(lead);db.commit();send_welcome(email,payload.name,code,lead.unsubscribe_token)
+    db.add(lead);db.commit()
+    # Signup is durable before this line. Email is queued (fast local insert) and
+    # delivered asynchronously by the worker - a slow/down provider never blocks signup.
+    enqueue(db,lead,"welcome",ep.PRIORITY_TRANSACTIONAL);db.commit()
     return WaitlistOut(ok=True,message="Early access reserved. We'll notify you about launch and material IPO-score changes.",referral_code=code)
 
 
@@ -94,6 +102,33 @@ def unsubscribe(token:str,db:Session=Depends(db_dep)):
     if not lead:raise HTTPException(404,"Invalid unsubscribe link")
     lead.consent=False;db.commit()
     return FileResponse(STATIC/"unsubscribed.html")
+
+PREF_FIELDS=["markets","alert_score_change","alert_recommendation_change","alert_red_flag","alert_new_ipo","digest_weekly"]
+
+@app.get("/api/preferences")
+def get_preferences(token:str,db:Session=Depends(db_dep)):
+    lead=db.scalar(select(WaitlistLead).where(WaitlistLead.unsubscribe_token==token))
+    if not lead:raise HTTPException(404,"Invalid preferences link")
+    return {"email":lead.email,"consent":lead.consent,**{f:getattr(lead,f) for f in PREF_FIELDS}}
+
+@app.post("/api/preferences")
+def update_preferences(token:str,payload:dict,db:Session=Depends(db_dep)):
+    lead=db.scalar(select(WaitlistLead).where(WaitlistLead.unsubscribe_token==token))
+    if not lead:raise HTTPException(404,"Invalid preferences link")
+    if "markets" in payload and payload["markets"] in ("india","us","both"):lead.markets=payload["markets"]
+    for f in PREF_FIELDS[1:]:
+        if f in payload:setattr(lead,f,bool(payload[f]))
+    db.commit()
+    return {"ok":True,**{f:getattr(lead,f) for f in PREF_FIELDS}}
+
+@app.post("/api/webhooks/resend")
+async def resend_webhook(request:Request,db:Session=Depends(db_dep)):
+    body=await request.body()
+    ok=webhooks_svc.verify_svix_signature(S.resend_webhook_secret,request.headers.get("svix-id",""),request.headers.get("svix-timestamp",""),request.headers.get("svix-signature",""),body)
+    if not ok:raise HTTPException(401,"invalid or unsigned webhook payload")
+    try:event=json.loads(body)
+    except Exception:raise HTTPException(400,"invalid JSON")
+    return webhooks_svc.handle_event(db,event)
 
 @app.get("/api/summary")
 def summary(db:Session=Depends(db_dep)):
@@ -163,7 +198,39 @@ def source_health(db:Session=Depends(db_dep)):
     for source,tier in tiers.items():
         r=db.scalar(select(IngestionRun).where(IngestionRun.source==source).order_by(IngestionRun.started_at.desc()).limit(1))
         out.append({"source":source,"tier":tier,"status":"never run" if not r else r.status,"last_run":None if not r else r.started_at.isoformat(),"rows":0 if not r else r.rows_seen,"error":"" if not r else r.error})
+    last_sent=db.scalar(select(EmailMessage).where(EmailMessage.status.in_([ep.SENT,ep.DELIVERED])).order_by(EmailMessage.sent_at.desc()).limit(1))
+    last_hard_failed=db.scalar(select(EmailMessage).where(EmailMessage.status==ep.FAILED).order_by(EmailMessage.updated_at.desc()).limit(1))
+    last_erroring=db.scalar(select(EmailMessage).where(EmailMessage.attempt_count>0,EmailMessage.last_error!="").order_by(EmailMessage.updated_at.desc()).limit(1))
+    provider=ep.get_provider(S)
+    if not S.enable_email or isinstance(provider,ep.DisabledEmailProvider):email_status="DISABLED"
+    elif last_hard_failed and (not last_sent or last_hard_failed.updated_at>last_sent.sent_at):email_status="FAILED"
+    elif last_erroring and (not last_sent or last_erroring.updated_at>last_sent.sent_at):email_status="DEGRADED"  # retrying but not yet exhausted
+    else:email_status="LIVE"
+    last_error_msg=last_hard_failed.last_error if last_hard_failed else (last_erroring.last_error if last_erroring else "")
+    out.append({"source":f"Email ({S.email_provider.upper()})" if S.enable_email else "Email (disabled)","tier":2,"status":email_status,"last_run":last_sent.sent_at.isoformat() if last_sent and last_sent.sent_at else None,"rows":db.scalar(select(func.count()).select_from(EmailMessage).where(EmailMessage.status.in_([ep.SENT,ep.DELIVERED]))) or 0,"error":last_error_msg})
     return out
+
+@app.get("/api/admin/email-stats")
+def email_stats(x_admin_token:str|None=Header(default=None),db:Session=Depends(db_dep)):
+    if S.admin_token and (not x_admin_token or not secrets.compare_digest(x_admin_token,S.admin_token)):raise HTTPException(403,"Invalid admin token")
+    today=datetime.now(timezone.utc).replace(hour=0,minute=0,second=0,microsecond=0);month=today.replace(day=1)
+    def count(**where):
+        stmt=select(func.count()).select_from(EmailMessage)
+        for k,v in where.items():stmt=stmt.where(getattr(EmailMessage,k)==v)
+        return db.scalar(stmt) or 0
+    sent_today=db.scalar(select(func.count()).select_from(EmailMessage).where(EmailMessage.status.in_([ep.SENT,ep.DELIVERED]),EmailMessage.sent_at>=today)) or 0
+    sent_month=db.scalar(select(func.count()).select_from(EmailMessage).where(EmailMessage.status.in_([ep.SENT,ep.DELIVERED]),EmailMessage.sent_at>=month)) or 0
+    return {"provider":S.email_provider,"enabled":S.enable_email,
+      "sent_today":sent_today,"sent_month":sent_month,
+      "delivered":count(status=ep.DELIVERED),"failed":count(status=ep.FAILED),"queued":count(status=ep.QUEUED),
+      "bounced":count(status=ep.BOUNCED),"complained":count(status=ep.COMPLAINED),"suppressed":count(status=ep.SUPPRESSED),
+      "daily_soft_limit":S.email_daily_soft_limit,"daily_remaining":max(0,S.email_daily_soft_limit-sent_today),
+      "monthly_soft_limit":S.email_monthly_soft_limit,"monthly_remaining":max(0,S.email_monthly_soft_limit-sent_month)}
+
+@app.post("/api/admin/email/process")
+def admin_process_email_queue(x_admin_token:str|None=Header(default=None),db:Session=Depends(db_dep)):
+    if S.admin_token and (not x_admin_token or not secrets.compare_digest(x_admin_token,S.admin_token)):raise HTTPException(403,"Invalid admin token")
+    return process_queue(db)
 
 @app.get("/api/backtest")
 def backtest(db:Session=Depends(db_dep)):return backtest_summary(db)
