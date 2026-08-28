@@ -1,0 +1,10 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Email preferences — IPO Intelligence</title><link rel="stylesheet" href="/static/styles.css"></head><body><div class="container"><main class="hero" style="grid-template-columns:1fr;max-width:640px"><section><div class="eyebrow">Email preferences</div><h1 style="font-size:36px">Choose what you hear about.</h1><div id="prefBox" class="waitcard" style="max-width:100%"><p class="muted" id="prefStatus">Loading your preferences…</p><form id="prefForm" style="display:none">
+<div class="field"><label for="markets">Market focus</label><select id="markets" name="markets"><option value="both">India + U.S.</option><option value="india">India</option><option value="us">United States</option></select></div>
+<div class="field"><label><input type="checkbox" id="alert_score_change"> Score changes</label></div>
+<div class="field"><label><input type="checkbox" id="alert_recommendation_change"> Recommendation changes (e.g. WATCH → INVEST)</label></div>
+<div class="field"><label><input type="checkbox" id="alert_red_flag"> Critical red flags</label></div>
+<div class="field"><label><input type="checkbox" id="alert_new_ipo"> New IPO filings</label></div>
+<div class="field"><label><input type="checkbox" id="digest_weekly"> Weekly digest</label></div>
+<button class="btn primary" type="submit">Save preferences</button>
+<div id="prefMessage" class="message" aria-live="polite"></div>
+</form></div></section></main></div><script src="/static/preferences.js"></script></body></html>

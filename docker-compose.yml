@@ -1,4 +1,8 @@
 services:
+  mailpit:
+    image: axllent/mailpit
+    ports: ["8025:8025", "1025:1025"]
+    restart: unless-stopped
   db:
     image: postgres:17-alpine
     environment:
@@ -16,9 +20,11 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://ipo:${POSTGRES_PASSWORD:-ipo-local-password}@db:5432/ipo
+      SMTP_HOST: mailpit  # container-network name overrides .env's 127.0.0.1 (host-run default)
     ports: ["8000:8000"]
     depends_on:
       db: {condition: service_healthy}
+      mailpit: {condition: service_started}
     restart: unless-stopped
   worker:
     build: .
@@ -26,8 +32,10 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://ipo:${POSTGRES_PASSWORD:-ipo-local-password}@db:5432/ipo
+      SMTP_HOST: mailpit
     depends_on:
       db: {condition: service_healthy}
+      mailpit: {condition: service_started}
     restart: unless-stopped
 volumes:
   ipo_pg:

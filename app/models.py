@@ -22,6 +22,14 @@ class WaitlistLead(Base):
     source: Mapped[str] = mapped_column(String(80), default="direct")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    suppressed: Mapped[bool] = mapped_column(Boolean, default=False)
+    suppressed_reason: Mapped[str] = mapped_column(String(40), default="")
+    alert_score_change: Mapped[bool] = mapped_column(Boolean, default=True)
+    alert_recommendation_change: Mapped[bool] = mapped_column(Boolean, default=True)
+    alert_red_flag: Mapped[bool] = mapped_column(Boolean, default=True)
+    alert_new_ipo: Mapped[bool] = mapped_column(Boolean, default=False)
+    digest_weekly: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_digest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 class IPO(Base):
     __tablename__ = "ipos"
@@ -146,13 +154,29 @@ class IngestionRun(Base):
     error: Mapped[str] = mapped_column(Text, default="")
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
 
-class NotificationLog(Base):
-    __tablename__ = "notification_logs"
-    __table_args__ = (UniqueConstraint("lead_id", "score_snapshot_id", name="uq_lead_score_alert"),)
+class EmailMessage(Base):
+    """Every email the app sends or queues, of every kind (confirmation, alert,
+    digest). One row per recipient per logical event - the (lead_id, template,
+    dedupe_key) constraint is what makes alert delivery idempotent."""
+    __tablename__ = "email_messages"
+    __table_args__ = (UniqueConstraint("lead_id", "template", "dedupe_key", name="uq_lead_template_dedupe"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     lead_id: Mapped[int] = mapped_column(ForeignKey("waitlist_leads.id"), index=True)
-    ipo_id: Mapped[int] = mapped_column(ForeignKey("ipos.id"), index=True)
-    score_snapshot_id: Mapped[int] = mapped_column(ForeignKey("score_snapshots.id"), index=True)
-    status: Mapped[str] = mapped_column(String(30), default="sent")
-    error: Mapped[str] = mapped_column(Text, default="")
+    ipo_id: Mapped[int | None] = mapped_column(ForeignKey("ipos.id"), nullable=True, index=True)
+    score_snapshot_id: Mapped[int | None] = mapped_column(ForeignKey("score_snapshots.id"), nullable=True, index=True)
+    email: Mapped[str] = mapped_column(String(320), index=True)
+    template: Mapped[str] = mapped_column(String(40), index=True)
+    dedupe_key: Mapped[str] = mapped_column(String(80), default="")
+    subject: Mapped[str] = mapped_column(String(200), default="")
+    provider: Mapped[str] = mapped_column(String(20), default="")  # set to the EMAIL_PROVIDER actually used at send time
+    provider_message_id: Mapped[str] = mapped_column(String(100), default="", index=True)
+    status: Mapped[str] = mapped_column(String(20), default="QUEUED", index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=2, index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

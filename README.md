@@ -54,7 +54,7 @@ Tier 1: SEC EDGAR/XBRL, NSE/official exchange reports. Tier 2: regulator/company
 
 ## Environment variables
 
-See `.env.example`. Important variables are `DATABASE_URL`, `SEC_USER_AGENT`, `STRICT_RELIABILITY`, `MIN_RECOMMENDATION_CONFIDENCE`, `WORKER_INTERVAL_SECONDS`, `ADMIN_TOKEN`, `ENABLE_EMAIL`, and `RESEND_API_KEY`.
+See `.env.example`. Important variables are `DATABASE_URL`, `SEC_USER_AGENT`, `STRICT_RELIABILITY`, `MIN_RECOMMENDATION_CONFIDENCE`, `WORKER_INTERVAL_SECONDS`, `ADMIN_TOKEN`, `ENABLE_EMAIL`, and `EMAIL_PROVIDER` (see "Early-access updates" below).
 
 ## Notes on India data
 
@@ -76,7 +76,14 @@ Use a real SEC User-Agent and do not raise request frequency aggressively.
 
 ## Early-access updates
 
-When `ENABLE_EMAIL=true` and a valid `RESEND_API_KEY` are configured, signups receive confirmation messages and the worker sends material high-confidence score-change alerts. Every email contains an unsubscribe link. With email disabled, signup persistence still works and no outbound message is attempted.
+Email is provider-independent (`app/services/email_provider.py`); `EMAIL_PROVIDER` selects exactly one transport, no vendor account required by default:
+
+- `mailpit` (default) - local dev/CI SMTP catch-all, [github.com/axllent/mailpit](https://github.com/axllent/mailpit). No API key, no account. `run_local.bat` starts it automatically; inbox at http://localhost:8025.
+- `smtp` - any SMTP server you already have credentials for (`SMTP_HOST`/`SMTP_PORT`/`SMTP_TLS`/`SMTP_USER`/`SMTP_PASSWORD`).
+- `freeresend` - self-hosted, Resend-API-compatible gateway backed by Amazon SES, [github.com/eibrahim/freeresend](https://github.com/eibrahim/freeresend). See `docker-compose.email.yml`. Recommended default for production - no hosted Resend account needed.
+- `resend` - hosted Resend SaaS. Fully optional; only needs `RESEND_API_KEY` when explicitly selected.
+
+When `ENABLE_EMAIL=true` and the selected provider is reachable, signups receive confirmation messages and the worker sends material high-confidence score-change alerts. Every email contains an unsubscribe link. With email disabled (or the provider unreachable), signup persistence still works and email is queued/retried, never silently dropped.
 
 Admin waitlist export is available at `/api/admin/waitlist.csv` with the `X-Admin-Token` header.
 

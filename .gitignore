@@ -18,3 +18,7 @@ node_modules/
 dist/
 build/
 *.tmp
+# local dev tools (e.g. downloaded mailpit.exe) - not project source
+bin/
+# sibling FreeResend checkout for docker-compose.email.yml
+freeresend/

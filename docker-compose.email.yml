@@ -1,0 +1,52 @@
+# Optional self-hosted email gateway for PRODUCTION use.
+#
+# Not required for local development (see docker-compose.yml's `mailpit`
+# service / run_local.bat, which need no external account at all).
+#
+# FreeResend (https://github.com/eibrahim/freeresend) is a self-hosted,
+# Resend-API-compatible gateway backed by Amazon SES. This project talks to
+# it exactly like the hosted Resend API (EMAIL_PROVIDER=freeresend), so
+# swapping between "hosted Resend" and "your own FreeResend instance" is a
+# config change, not a code change.
+#
+# Setup:
+#   1. git clone https://github.com/eibrahim/freeresend ./freeresend
+#   2. cp ./freeresend/.env.local.example ./freeresend/.env.local
+#      and fill in NEXTAUTH_SECRET, DATABASE_URL, AWS_REGION,
+#      AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, ADMIN_EMAIL, ADMIN_PASSWORD.
+#      NEVER commit that file - it is a sibling checkout, outside this repo.
+#   3. docker compose -f docker-compose.email.yml up -d
+#   4. In the FreeResend admin UI, verify your sending domain (SPF/DKIM
+#      records it gives you must be added at your DNS provider - Cloudflare,
+#      Route53, GoDaddy, Namecheap, etc. all work; none is required over
+#      another) and create an API key.
+#   5. In this project's .env: EMAIL_PROVIDER=freeresend,
+#      FREERESEND_BASE_URL=http://localhost:3000/api (or your deployed URL),
+#      FREERESEND_API_KEY=<the key from step 4>.
+services:
+  freeresend_db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: freeresend
+      POSTGRES_USER: freeresend
+      POSTGRES_PASSWORD: ${FREERESEND_DB_PASSWORD:?FREERESEND_DB_PASSWORD is required}
+    volumes:
+      - freeresend_pg:/var/lib/postgresql/data
+      - ./freeresend/database.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freeresend"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  freeresend:
+    build: ./freeresend  # sibling checkout of github.com/eibrahim/freeresend - see Setup above
+    env_file: ./freeresend/.env.local  # AWS SES / DO / admin credentials live here, never in this repo
+    environment:
+      DATABASE_URL: postgresql://freeresend:${FREERESEND_DB_PASSWORD:?FREERESEND_DB_PASSWORD is required}@freeresend_db:5432/freeresend
+    ports: ["3000:3000"]
+    depends_on:
+      freeresend_db: {condition: service_healthy}
+    restart: unless-stopped
+volumes:
+  freeresend_pg:
