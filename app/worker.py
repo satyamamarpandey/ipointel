@@ -5,6 +5,7 @@ from .services.pipeline import refresh_all,refresh_market_performance,ingest_nse
 from .services.alerts import send_pending
 from .services.email_queue import process_queue
 from .services.newsletter import queue_weekly_digests
+from .services.outcomes import sync_prediction_outcomes
 
 logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s")
 
@@ -15,6 +16,7 @@ def run_once(cycle:int=0):
     try:
         runs=refresh_all(db)
         if cycle%4==0: refresh_market_performance(db)
+        if cycle%4==0: sync_prediction_outcomes(db)
         if cycle%96==0: ingest_nse_history(db,max_reports=2)
         if cycle%96==0: queue_weekly_digests(db)
         send_pending(db)

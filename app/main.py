@@ -11,7 +11,7 @@ from sqlalchemy import select,func,or_
 from sqlalchemy.orm import Session
 from .config import get_settings
 from .db import init_db,SessionLocal
-from .models import IPO,ScoreSnapshot,Provenance,PerformanceSnapshot,IngestionRun,WaitlistLead,EmailMessage
+from .models import IPO,ScoreSnapshot,Provenance,PerformanceSnapshot,IngestionRun,WaitlistLead,EmailMessage,PredictionOutcome
 from .schemas import WaitlistIn,WaitlistOut
 from .services.email_queue import enqueue,process_queue
 from .services import email_provider as ep
@@ -234,6 +234,37 @@ def admin_process_email_queue(x_admin_token:str|None=Header(default=None),db:Ses
 
 @app.get("/api/backtest")
 def backtest(db:Session=Depends(db_dep)):return backtest_summary(db)
+
+@app.get("/api/track-record")
+def track_record(limit:int=100,db:Session=Depends(db_dep)):
+    """The live, immutable forward track record - distinct from /api/backtest
+    (which includes retrofitted/backfilled historical scoring). Every row here
+    is a ScoreSnapshot written while the IPO's outcome was NOT yet known."""
+    rows=db.scalars(select(ScoreSnapshot).where(ScoreSnapshot.is_forward==True).order_by(ScoreSnapshot.created_at.desc()).limit(limit)).all()  # noqa: E712
+    out=[]
+    for sc in rows:
+        ipo=db.get(IPO,sc.ipo_id)
+        if not ipo:continue
+        outcome=db.scalar(select(PredictionOutcome).where(PredictionOutcome.score_snapshot_id==sc.id))
+        out.append({
+            "ipo_id":ipo.id,"company":ipo.company,"country":ipo.country,"status":ipo.status,
+            "predicted_at":sc.created_at.isoformat(),"event_stage":sc.event_stage,
+            "model_version":sc.model_version,"feature_schema_version":sc.feature_schema_version,
+            "overall_score":sc.overall_score,"listing_score":sc.listing_score,"long_term_score":sc.long_term_score,
+            "listing_gain_probability":sc.listing_gain_probability,"long_term_outperform_probability":sc.long_term_outperform_probability,
+            "recommendation":sc.recommendation,"valuation_label":sc.valuation_label,"confidence":sc.confidence,
+            "outcome_known":ipo.status=="Listed",
+            "outcome": None if not outcome else {
+                "listing_open_return_pct":outcome.listing_open_return_pct,"listing_close_return_pct":outcome.listing_close_return_pct,
+                "return_7d_pct":outcome.return_7d_pct,"return_30d_pct":outcome.return_30d_pct,"return_6m_pct":outcome.return_6m_pct,
+                "return_12m_pct":outcome.return_12m_pct,"return_24m_pct":outcome.return_24m_pct,
+                "benchmark_relative_return_pct":outcome.benchmark_relative_return_pct,
+            },
+        })
+    total_forward=db.scalar(select(func.count()).select_from(ScoreSnapshot).where(ScoreSnapshot.is_forward==True)) or 0  # noqa: E712
+    graded=db.scalar(select(func.count()).select_from(PredictionOutcome)) or 0
+    return {"note":"Every row is a prediction made while the IPO's outcome was not yet known, never rewritten after the fact. Separate from /api/backtest, which also includes retrofitted historical scoring.",
+            "total_forward_predictions":total_forward,"graded_with_outcome":graded,"predictions":out}
 
 @app.get("/api/admin/waitlist.csv")
 def waitlist_export(x_admin_token:str|None=Header(default=None),db:Session=Depends(db_dep)):

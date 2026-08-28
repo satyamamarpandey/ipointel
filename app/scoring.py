@@ -7,6 +7,23 @@ from .models import IPO
 from .config import get_settings
 
 MODEL_VERSION = "v2.0-evidence-first"
+FEATURE_SCHEMA_VERSION = "fs1"  # bump whenever the set/meaning of fields compute_score() reads changes
+
+FEATURE_FIELDS = [
+    "country","board","status","price_low","price_high","final_price",
+    "issue_size_m","shares_offered_m","post_issue_shares_m",
+    "revenue_m","revenue_prev_m","revenue_2y_ago_m","ebitda_m","net_income_m","cfo_m","debt_m","cash_m",
+    "fresh_issue_pct","ofs_pct","promoter_retention_pct",
+    "qib_sub","nii_sub","retail_sub","total_sub","gmp_pct","underwriter_quality","anchor_quality",
+    "market_regime","sector_regime","dual_class",
+    "peer_median_pe","peer_median_ps","peer_median_ev_ebitda",
+]
+
+def feature_snapshot(ipo: IPO) -> dict:
+    """The exact point-in-time inputs compute_score() read for this IPO, frozen
+    onto the ScoreSnapshot row so a later refresh (which mutates the live IPO
+    record) can never change what this particular prediction was based on."""
+    return {f: getattr(ipo, f) for f in FEATURE_FIELDS}
 
 def clamp(v, lo=0.0, hi=100.0): return max(lo, min(hi, float(v)))
 def score_linear(v: Optional[float], low: float, high: float):

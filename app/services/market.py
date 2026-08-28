@@ -64,7 +64,7 @@ def windowed_returns(bars:list[dict],listing_dt:datetime):
     out={"listing_date_used":datetime.fromtimestamp(listing_bar["ts"],tz=timezone.utc).date().isoformat(),"listing_close":listing_bar["close"],"listing_open":listing_bar.get("open")}
     if listing_bar.get("open") and listing_bar.get("close"):
         out["listing_day_return_pct"]=(listing_bar["close"]/listing_bar["open"]-1)*100
-    for label,days in (("return_1m_pct",30),("return_6m_pct",182),("return_12m_pct",365)):
+    for label,days in (("return_7d_pct",7),("return_1m_pct",30),("return_30d_pct",30),("return_6m_pct",182),("return_12m_pct",365),("return_24m_pct",730)):
         target=listing_ts+days*86400
         b=bar_nearest_before_or_on(bars,target) or (bars[-1] if bars[-1]["ts"]<=target+7*86400 else None)
         if b and b["ts"]>listing_ts:

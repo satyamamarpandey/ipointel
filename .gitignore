@@ -8,6 +8,7 @@ data/*.db
 data/*.db-wal
 data/*.db-shm
 data/*.db-journal
+data/*.db.pre-*-backup
 data/filings_cache/
 *.log
 logs/

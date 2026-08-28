@@ -1,9 +1,13 @@
 from __future__ import annotations
 from datetime import datetime, timezone
-from sqlalchemy import String, Float, Integer, DateTime, Boolean, Text, ForeignKey, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import String, Float, Integer, DateTime, Boolean, Text, ForeignKey, UniqueConstraint, event
+from sqlalchemy.orm import Mapped, mapped_column, relationship, Session
 from sqlalchemy.types import JSON
 from .db import Base
+
+class ImmutableRecordError(Exception):
+    """Raised when code tries to modify a row that must never change after
+    creation (e.g. a forward prediction snapshot). See ScoreSnapshot below."""
 
 def utcnow():
     return datetime.now(timezone.utc)
@@ -91,10 +95,27 @@ class IPO(Base):
     provenance: Mapped[list["Provenance"]] = relationship(back_populates="ipo", cascade="all, delete-orphan")
 
 class ScoreSnapshot(Base):
+    """An immutable, point-in-time prediction. This IS the forward-prediction
+    record (spec: "PredictionSnapshot") - once written it is never updated or
+    deleted (enforced below by _reject_score_snapshot_mutation). A new
+    ScoreSnapshot row is inserted whenever the model's inputs or output move
+    in a way event_stage names; nothing here is ever rewritten by a later
+    refresh, so this table is the true prospective track record.
+
+    is_forward distinguishes a genuine forward prediction (the IPO's status
+    was still pre-listing at the moment this row was written - the outcome
+    was NOT yet known) from a retrospective one (scored via app/backfill.py
+    or a "priced in the last few days" ingest pass, where status was already
+    Listed - useful for backtesting, but not prospective evidence)."""
     __tablename__ = "score_snapshots"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     ipo_id: Mapped[int] = mapped_column(ForeignKey("ipos.id"), index=True)
     model_version: Mapped[str] = mapped_column(String(40), default="v2.0")
+    feature_schema_version: Mapped[str] = mapped_column(String(20), default="")
+    event_stage: Mapped[str] = mapped_column(String(40), default="", index=True)
+    is_forward: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    feature_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    provenance_ids: Mapped[list] = mapped_column(JSON, default=list)
     overall_score: Mapped[float] = mapped_column(Float)
     listing_score: Mapped[float] = mapped_column(Float)
     long_term_score: Mapped[float] = mapped_column(Float)
@@ -112,6 +133,40 @@ class ScoreSnapshot(Base):
     what_changes_verdict: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     ipo: Mapped[IPO] = relationship(back_populates="scores")
+    outcome: Mapped["PredictionOutcome | None"] = relationship(back_populates="snapshot", uselist=False)
+
+@event.listens_for(Session, "before_flush")
+def _reject_score_snapshot_mutation(session, flush_context, instances):
+    for obj in session.dirty:
+        if isinstance(obj, ScoreSnapshot) and session.is_modified(obj, include_collections=False):
+            raise ImmutableRecordError(
+                f"ScoreSnapshot {obj.id} is an immutable forward-prediction record and cannot be modified after creation. "
+                "Attach new information as a new ScoreSnapshot row (or, for realized returns, a PredictionOutcome row)."
+            )
+
+class PredictionOutcome(Base):
+    """Realized returns for a forward prediction, attached AFTER listing
+    without ever touching the original ScoreSnapshot. One row per snapshot
+    (the IPO's last is_forward=True snapshot - its final pre-listing call).
+    Unlike ScoreSnapshot this row IS updated in place as more return windows
+    become observable (7d now, 6m/12m/24m only once enough time has passed)."""
+    __tablename__ = "prediction_outcomes"
+    __table_args__ = (UniqueConstraint("score_snapshot_id", name="uq_outcome_snapshot"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    score_snapshot_id: Mapped[int] = mapped_column(ForeignKey("score_snapshots.id"), unique=True, index=True)
+    ipo_id: Mapped[int] = mapped_column(ForeignKey("ipos.id"), index=True)
+    listing_open_return_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    listing_close_return_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    return_7d_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    return_30d_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    return_6m_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    return_12m_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    return_24m_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    benchmark_relative_return_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source_name: Mapped[str] = mapped_column(String(100), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    snapshot: Mapped[ScoreSnapshot] = relationship(back_populates="outcome")
 
 class Provenance(Base):
     __tablename__ = "provenance"

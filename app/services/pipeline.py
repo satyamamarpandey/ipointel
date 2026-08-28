@@ -4,7 +4,7 @@ from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 import httpx
 from ..models import IPO, ScoreSnapshot, Provenance, IngestionRun, PerformanceSnapshot
-from ..scoring import compute_score
+from ..scoring import compute_score, feature_snapshot, FEATURE_SCHEMA_VERSION
 from ..config import get_settings
 from . import sec,nse,market,enrichment
 
@@ -38,14 +38,39 @@ def add_provenance(db:Session,ipo:IPO,field:str,value,source_name,url,tier:int):
                 o.is_conflict=False
     q.is_conflict=conflict
 
+def _event_stage(created:bool,changed_fields:set,prev:dict,ipo:IPO,last:ScoreSnapshot|None,score:dict) -> str|None:
+    """Decide (deterministically, no LLM/inference) which single event this
+    prediction snapshot documents. Order matters - most specific/important
+    wins when several fields moved in the same ingest pass."""
+    if created:
+        return "ipo_discovered"
+    if "final_price" in changed_fields and not prev["final_price"] and ipo.status.lower()!="listed":
+        return "final_pre_listing"
+    if "filing_url" in changed_fields:
+        return "filing_ingested" if not prev["filing_url"] else "filing_amendment"
+    if "price_low" in changed_fields or "price_high" in changed_fields:
+        return "price_band_set"
+    if "anchor_quality" in changed_fields:
+        return "anchor_data_added"
+    if changed_fields & {"qib_sub","nii_sub","retail_sub","total_sub"}:
+        return "subscription_update"
+    if last and last.recommendation!=score["recommendation"]:
+        return "recommendation_changed"
+    if not last or any(abs(getattr(last,k)-score[k])>=0.1 for k in ("overall_score","listing_score","long_term_score","confidence")):
+        return "material_score_change"
+    if changed_fields:
+        return "material_change"
+    return None
+
 def upsert_ipo(db:Session,row:dict,source_name:str,source_url:str,tier:int):
     key=external_key(row); ipo=db.scalar(select(IPO).where(IPO.external_key==key)); created=False
     if not ipo:
         ipo=IPO(external_key=key,company=row.get("company") or "Unknown",country=row.get("country") or "Unknown");db.add(ipo);db.flush();created=True
+    prev={"filing_url":ipo.filing_url,"final_price":ipo.final_price}
     fields=["company","symbol","country","exchange","board","sector","status","filing_date","open_date","close_date","listing_date","currency","price_low","price_high","final_price","issue_size_m","shares_offered_m","post_issue_shares_m","lot_size","revenue_m","revenue_prev_m","revenue_2y_ago_m","ebitda_m","net_income_m","cfo_m","debt_m","cash_m","fresh_issue_pct","ofs_pct","promoter_retention_pct","qib_sub","nii_sub","retail_sub","total_sub","gmp_pct","underwriter_quality","anchor_quality","market_regime","sector_regime","dual_class","lockup_days","market_overhang_pct","peer_median_pe","peer_median_ps","peer_median_ev_ebitda","filing_url","registrar","allotment_url"]
-    changed=False
+    changed_fields=set()
     for f in fields:
-        if f in row and row[f] not in (None,"") and getattr(ipo,f)!=row[f]: setattr(ipo,f,row[f]);changed=True
+        if f in row and row[f] not in (None,"") and getattr(ipo,f)!=row[f]: setattr(ipo,f,row[f]);changed_fields.add(f)
         if f in row and row[f] not in (None,""):add_provenance(db,ipo,f,row[f],source_name,source_url,tier)
     if row.get("raw"):ipo.raw=row["raw"]
     if row.get("data_flags") is not None:ipo.data_flags=row["data_flags"]
@@ -53,9 +78,13 @@ def upsert_ipo(db:Session,row:dict,source_name:str,source_url:str,tier:int):
     conflicts=db.scalar(select(func.count()).select_from(Provenance).where(Provenance.ipo_id==ipo.id,Provenance.is_conflict==True)) or 0
     score=compute_score(ipo,conflicts)
     last=db.scalar(select(ScoreSnapshot).where(ScoreSnapshot.ipo_id==ipo.id).order_by(ScoreSnapshot.created_at.desc()).limit(1))
-    if not last or any(abs(getattr(last,k)-score[k])>=0.1 for k in ("overall_score","listing_score","long_term_score","confidence")) or last.recommendation!=score["recommendation"]:
-        db.add(ScoreSnapshot(ipo_id=ipo.id,**score))
-    return created or changed
+    stage=_event_stage(created,changed_fields,prev,ipo,last,score)
+    if stage:
+        prov_ids=list(db.scalars(select(Provenance.id).where(Provenance.ipo_id==ipo.id)))
+        db.add(ScoreSnapshot(ipo_id=ipo.id,event_stage=stage,feature_schema_version=FEATURE_SCHEMA_VERSION,
+                              feature_snapshot=feature_snapshot(ipo),provenance_ids=prov_ids,
+                              is_forward=ipo.status.lower()!="listed",**score))
+    return created or bool(changed_fields)
 
 def ingest_sec(db:Session):
     s=get_settings(); run=IngestionRun(source="SEC EDGAR",status="running");db.add(run);db.commit();seen=changed=0
