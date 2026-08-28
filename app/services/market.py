@@ -27,7 +27,7 @@ def fetch_benchmark_history(country:str):
     if not sym:return None
     return fetch_yahoo_history(sym,country,raw_symbol=True)
 
-_DATE_FORMATS=("%Y-%m-%d","%Y-%m-%d %H:%M:%S","%d-%b-%Y","%d %b %Y","%d/%m/%Y")
+_DATE_FORMATS=("%Y-%m-%d","%Y-%m-%d %H:%M:%S","%d-%b-%Y","%d %b %Y","%d/%m/%Y","%Y%m%d")
 
 def parse_date(s:str):
     if not s:return None

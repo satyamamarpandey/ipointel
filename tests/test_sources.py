@@ -12,6 +12,13 @@ def test_archive_links():
     html='<a href="https://nsearchives.nseindia.com/a.xlsx">Primary Market Monthly Report - July 2026 (.xlsx)</a>'
     assert archive_links(html)[0][1].endswith('a.xlsx')
 
+def test_parse_date_handles_sec_master_index_format():
+    from app.services.market import parse_date
+    d = parse_date('20260819')
+    assert d is not None and d.year == 2026 and d.month == 8 and d.day == 19
+    assert parse_date('2026-08-19').day == 19
+    assert parse_date('') is None
+
 def test_latest_fact_reads_dei_shares_outstanding():
     from app.services.sec import latest_fact
     facts={"facts":{"dei":{"EntityCommonStockSharesOutstanding":{"units":{"shares":[
