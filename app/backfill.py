@@ -24,7 +24,7 @@ def main():
                     if not parsed:continue
                     row={**meta,**parsed,"country":"United States","exchange":"NASDAQ/NYSE/Other","board":"Mainboard","sector":"Unknown","status":"Listed","currency":"USD","listing_date":meta.get("filing_date","")}
                     upsert_ipo(db,row,"SEC 424B4",meta["filing_url"],1);db.commit();count+=1;print(count,day,row["company"],row.get("symbol"),row.get("final_price"));time.sleep(.12)
-                except Exception as e:print("skip",meta.get("company"),type(e).__name__)
+                except Exception as e:db.rollback();print("skip",meta.get("company"),type(e).__name__)
             if count>=args.max_filings:break
         refresh_market_performance(db,limit=min(500,count))
     finally:db.close()
