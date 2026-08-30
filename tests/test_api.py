@@ -6,8 +6,8 @@ def test_waitlist_signup_and_duplicate(client):
     a=client.post('/api/waitlist',json=p);b=client.post('/api/waitlist',json=p)
     assert a.status_code==200 and a.json()['referral_code'];assert b.status_code==200 and b.json()['referral_code']==a.json()['referral_code']
 
-def test_empty_ipos_are_honest(client):
-    r=client.get('/api/ipos');assert r.status_code==200 and r.json()==[]
+def test_empty_ipos_are_honest(authed_client):
+    r=authed_client.get('/api/ipos');assert r.status_code==200 and r.json()==[]
 
 def test_admin_refresh_requires_token(client):
     r=client.post('/api/admin/refresh');assert r.status_code==403
@@ -25,11 +25,11 @@ def test_unsubscribe_and_rejoin(client):
         lead=db.scalar(select(WaitlistLead).where(WaitlistLead.email=='leave@example.com'));assert lead.consent is False
     assert client.post('/api/waitlist',json=p).json()['message'].startswith("You're back")
 
-def test_source_health_marks_enrichment_as_tier3(client):
-    rows=client.get('/api/source-health').json();tier={x['source']:x['tier'] for x in rows};assert tier['Licensed enrichment feed']==3
+def test_source_health_marks_enrichment_as_tier3(authed_client):
+    rows=authed_client.get('/api/source-health').json();tier={x['source']:x['tier'] for x in rows};assert tier['Licensed enrichment feed']==3
 
-def test_model_performance_empty_db_does_not_crash(client):
-    r=client.get('/api/model-performance');assert r.status_code==200
+def test_model_performance_empty_db_does_not_crash(authed_client):
+    r=authed_client.get('/api/model-performance');assert r.status_code==200
     body=r.json();assert 'India' in body and 'United States' in body
     assert body['India']['listing_model']['status'].startswith('insufficient sample')
 
@@ -42,22 +42,22 @@ def _seed_ipo(db):
             retail_sub=12,total_sub=35,filing_url='https://www.nseindia.com/x',status='Filed')
     db.add(ipo);db.commit();db.refresh(ipo);return ipo
 
-def test_ipo_detail_includes_new_engines(client,db):
+def test_ipo_detail_includes_new_engines(authed_client,db):
     ipo=_seed_ipo(db)
-    r=client.get(f'/api/ipos/{ipo.id}');assert r.status_code==200
+    r=authed_client.get(f'/api/ipos/{ipo.id}');assert r.status_code==200
     body=r.json()
     assert 'red_flags' in body and 'flags' in body['red_flags']
     assert 'contradictions' in body
     assert 'sensitivity' in body and 'current_recommendation' in body['sensitivity']
 
-def test_ipo_changes_endpoint(client,db):
+def test_ipo_changes_endpoint(authed_client,db):
     ipo=_seed_ipo(db)
-    r=client.get(f'/api/ipos/{ipo.id}/changes');assert r.status_code==200
+    r=authed_client.get(f'/api/ipos/{ipo.id}/changes');assert r.status_code==200
     assert r.json()['ipo_id']==ipo.id
 
-def test_ipo_similar_endpoint_handles_no_peers(client,db):
+def test_ipo_similar_endpoint_handles_no_peers(authed_client,db):
     ipo=_seed_ipo(db)
-    r=client.get(f'/api/ipos/{ipo.id}/similar');assert r.status_code==200
+    r=authed_client.get(f'/api/ipos/{ipo.id}/similar');assert r.status_code==200
     assert r.json()['available'] is False
 
 def test_waitlist_signup_queues_welcome_email(client,db):
@@ -115,13 +115,13 @@ def test_webhook_rejects_unsigned_payload(client):
 def test_admin_email_stats_requires_token(client):
     assert client.get('/api/admin/email-stats').status_code==403
 
-def test_source_health_includes_email(client):
-    rows=client.get('/api/source-health').json()
+def test_source_health_includes_email(authed_client):
+    rows=authed_client.get('/api/source-health').json()
     names=[r['source'] for r in rows]
     assert any('Email' in n for n in names)
 
-def test_ipo_valuation_endpoint(client,db):
+def test_ipo_valuation_endpoint(authed_client,db):
     ipo=_seed_ipo(db)
-    r=client.get(f'/api/ipos/{ipo.id}/valuation');assert r.status_code==200
+    r=authed_client.get(f'/api/ipos/{ipo.id}/valuation');assert r.status_code==200
     body=r.json();assert 'scenario_dcf' in body and 'reverse_dcf' in body
     assert body['scenario_dcf']['available'] is True

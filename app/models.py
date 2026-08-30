@@ -34,6 +34,60 @@ class WaitlistLead(Base):
     alert_new_ipo: Mapped[bool] = mapped_column(Boolean, default=False)
     digest_weekly: Mapped[bool] = mapped_column(Boolean, default=False)
     last_digest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    access_status: Mapped[str] = mapped_column(String(20), default="WAITLISTED", index=True)  # WAITLISTED|INVITED|ACTIVE|DISABLED
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+class LoginToken(Base):
+    """A single-use magic-link token. Only the SHA-256 hash is stored - the
+    raw token exists only in the email and the URL the user clicks, never at
+    rest, so a DB read alone can never be used to log in as someone else."""
+    __tablename__ = "login_tokens"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("waitlist_leads.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    purpose: Mapped[str] = mapped_column(String(20), default="login")  # login|invite
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+class AuthSession(Base):
+    """A logged-in beta session. Only the SHA-256 hash of the session token
+    is stored; the raw token lives only in the HttpOnly session cookie."""
+    __tablename__ = "auth_sessions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("waitlist_leads.id"), index=True)
+    session_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    user_agent: Mapped[str] = mapped_column(String(300), default="")
+
+class WorkerHeartbeat(Base):
+    """Singleton row (id=1) the worker process upserts every cycle so
+    Source Health / admin can tell whether it's actually alive, not just
+    whether an OS process happens to exist."""
+    __tablename__ = "worker_heartbeat"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    instance: Mapped[str] = mapped_column(String(80), default="")
+    current_job: Mapped[str] = mapped_column(String(80), default="idle")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    last_sec_refresh_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_nse_refresh_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_performance_update_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_email_pass_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+class AdminAuditLog(Base):
+    """Every sensitive admin action, append-only (never updated)."""
+    __tablename__ = "admin_audit_log"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor: Mapped[str] = mapped_column(String(80), default="admin")
+    action: Mapped[str] = mapped_column(String(60), index=True)
+    target: Mapped[str] = mapped_column(String(200), default="")
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 class IPO(Base):
     __tablename__ = "ipos"

@@ -104,7 +104,7 @@ def test_final_pre_listing_stage_before_status_flips_to_listed(db):
 
 # ---------- track record API ----------
 
-def test_track_record_endpoint_only_returns_forward_predictions(client, db):
+def test_track_record_endpoint_only_returns_forward_predictions(authed_client, db):
     fwd_ipo = IPO(external_key="tr-fwd", company="FwdCo", country="India", status="Filed")
     back_ipo = IPO(external_key="tr-back", company="BackCo", country="United States", status="Listed")
     db.add_all([fwd_ipo, back_ipo]); db.commit(); db.refresh(fwd_ipo); db.refresh(back_ipo)
@@ -114,7 +114,7 @@ def test_track_record_endpoint_only_returns_forward_predictions(client, db):
     db.add(ScoreSnapshot(ipo_id=fwd_ipo.id, is_forward=True, **common))
     db.add(ScoreSnapshot(ipo_id=back_ipo.id, is_forward=False, **common))
     db.commit()
-    r = client.get("/api/track-record")
+    r = authed_client.get("/api/track-record")
     assert r.status_code == 200
     body = r.json()
     companies = [p["company"] for p in body["predictions"]]

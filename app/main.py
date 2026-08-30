@@ -5,17 +5,19 @@ from collections import defaultdict,deque
 from datetime import datetime,timezone,timedelta
 from pathlib import Path
 from fastapi import FastAPI,Depends,HTTPException,Request,Query,Header
-from fastapi.responses import FileResponse,StreamingResponse
+from fastapi.responses import FileResponse,StreamingResponse,RedirectResponse,JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select,func,or_
 from sqlalchemy.orm import Session
 from .config import get_settings
 from .db import init_db,SessionLocal
-from .models import IPO,ScoreSnapshot,Provenance,PerformanceSnapshot,IngestionRun,WaitlistLead,EmailMessage,PredictionOutcome
+from .models import IPO,ScoreSnapshot,Provenance,PerformanceSnapshot,IngestionRun,WaitlistLead,EmailMessage,PredictionOutcome,AdminAuditLog
 from .schemas import WaitlistIn,WaitlistOut
 from .services.email_queue import enqueue,process_queue
 from .services import email_provider as ep
 from .services import webhooks as webhooks_svc
+from .services import auth as auth_svc
+from .services import heartbeat as heartbeat_svc
 from .services.backtest import summarize as backtest_summary
 from .services.pipeline import refresh_all
 from .services import redflags as redflags_svc
@@ -35,11 +37,32 @@ async def lifespan(app):
 app=FastAPI(title=S.app_name,version="2.0.0",docs_url="/api/docs",redoc_url=None,lifespan=lifespan)
 app.mount("/static",StaticFiles(directory=STATIC),name="static")
 rate=defaultdict(lambda:deque(maxlen=20))
+auth_rate=defaultdict(lambda:deque(maxlen=20))
 
 def db_dep():
     db=SessionLocal()
     try:yield db
     finally:db.close()
+
+def require_admin(x_admin_token:str|None=Header(default=None)):
+    if S.admin_token and (not x_admin_token or not secrets.compare_digest(x_admin_token,S.admin_token)):raise HTTPException(403,"Invalid admin token")
+
+def require_active_lead(request:Request,db:Session=Depends(db_dep))->WaitlistLead:
+    """Gates the dashboard's data API. A beta session cookie only exists for
+    an ACTIVE lead (see auth_svc.get_lead_from_session) - WAITLISTED/INVITED/
+    DISABLED never reach here even with a stale cookie."""
+    lead=auth_svc.get_lead_from_session(db,request.cookies.get(auth_svc.SESSION_COOKIE))
+    if not lead:raise HTTPException(401,"Beta access required. Sign in at /login.")
+    return lead
+
+def audit(db:Session,action:str,target:str="",**meta):
+    db.add(AdminAuditLog(action=action,target=target,meta=meta))
+
+def rate_limited(bucket,key:str,limit:int,window_s:int=60)->bool:
+    now=time.time();q=bucket[key]
+    while q and now-q[0]>window_s:q.popleft()
+    if len(q)>=limit:return True
+    q.append(now);return False
 
 def latest_score(db,ipo_id):return db.scalar(select(ScoreSnapshot).where(ScoreSnapshot.ipo_id==ipo_id).order_by(ScoreSnapshot.created_at.desc()).limit(1))
 def perf(db,ipo_id):return db.scalar(select(PerformanceSnapshot).where(PerformanceSnapshot.ipo_id==ipo_id).order_by(PerformanceSnapshot.created_at.desc()).limit(1))
@@ -50,13 +73,67 @@ def ipo_json(db,ipo):
 @app.get("/")
 def landing():return FileResponse(STATIC/"index.html")
 @app.get("/app")
-def dashboard():return FileResponse(STATIC/"app.html")
+def dashboard(request:Request,db:Session=Depends(db_dep)):
+    lead=auth_svc.get_lead_from_session(db,request.cookies.get(auth_svc.SESSION_COOKIE))
+    if not lead:return RedirectResponse("/login?next=/app")
+    return FileResponse(STATIC/"app.html")
 @app.get("/privacy")
 def privacy():return FileResponse(STATIC/"privacy.html")
 @app.get("/terms")
 def terms():return FileResponse(STATIC/"terms.html")
 @app.get("/preferences")
 def preferences_page():return FileResponse(STATIC/"preferences.html")
+@app.get("/login")
+def login_page():return FileResponse(STATIC/"login.html")
+@app.get("/admin")
+def admin_page():return FileResponse(STATIC/"admin.html")
+
+@app.get("/auth/callback")
+def auth_callback(token:str,request:Request,db:Session=Depends(db_dep)):
+    lead,err=auth_svc.redeem_login_token(db,token)
+    if not lead:
+        db.commit()
+        return RedirectResponse(f"/login?error={err}")
+    session_token=auth_svc.create_session(db,lead,request.headers.get("user-agent",""))
+    db.commit()
+    resp=RedirectResponse("/app")
+    secure=request.url.scheme=="https"
+    resp.set_cookie(auth_svc.SESSION_COOKIE,session_token,httponly=True,secure=secure,samesite="lax",max_age=auth_svc.SESSION_TTL_DAYS*86400,path="/")
+    resp.set_cookie("csrf_token",secrets.token_urlsafe(24),httponly=False,secure=secure,samesite="lax",max_age=auth_svc.SESSION_TTL_DAYS*86400,path="/")
+    return resp
+
+@app.post("/api/auth/request-login")
+def request_login(payload:dict,request:Request,db:Session=Depends(db_dep)):
+    ip=request.client.host if request.client else "unknown"
+    if rate_limited(auth_rate,ip,5,600):raise HTTPException(429,"Too many sign-in attempts. Try again later.")
+    email=str(payload.get("email","")).strip().lower()
+    lead=db.scalar(select(WaitlistLead).where(WaitlistLead.email==email)) if email else None
+    # Same response whether or not the email exists/has access - avoids leaking who is on the beta list.
+    if lead and lead.access_status in ("INVITED","ACTIVE"):
+        raw=auth_svc.create_login_token(db,lead)
+        db.commit()
+        auth_svc.send_login_email(S,lead,raw)
+    else:
+        db.commit()
+    return {"ok":True,"message":"If that email has beta access, a sign-in link is on its way."}
+
+@app.post("/api/auth/logout")
+def logout(request:Request,x_csrf_token:str|None=Header(default=None),db:Session=Depends(db_dep)):
+    session_token=request.cookies.get(auth_svc.SESSION_COOKIE)
+    lead=auth_svc.get_lead_from_session(db,session_token)
+    if lead:
+        cookie_csrf=request.cookies.get("csrf_token")
+        if not cookie_csrf or not x_csrf_token or not secrets.compare_digest(cookie_csrf,x_csrf_token):raise HTTPException(403,"CSRF check failed")
+        auth_svc.revoke_all_sessions(db,lead.id);db.commit()
+    resp=JSONResponse({"ok":True})
+    resp.delete_cookie(auth_svc.SESSION_COOKIE,path="/");resp.delete_cookie("csrf_token",path="/")
+    return resp
+
+@app.get("/api/auth/me")
+def auth_me(request:Request,db:Session=Depends(db_dep)):
+    lead=auth_svc.get_lead_from_session(db,request.cookies.get(auth_svc.SESSION_COOKIE))
+    if not lead:return {"authenticated":False}
+    return {"authenticated":True,"email":lead.email,"access_status":lead.access_status}
 @app.middleware("http")
 async def security_headers(request:Request,call_next):
     response=await call_next(request)
@@ -65,6 +142,8 @@ async def security_headers(request:Request,call_next):
     response.headers["Referrer-Policy"]="strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"]="camera=(), microphone=(), geolocation=()"
     response.headers["Content-Security-Policy"]="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    if request.url.scheme=="https":  # never claim HSTS over a plain-HTTP connection - it would be a lie the browser might cache
+        response.headers["Strict-Transport-Security"]="max-age=31536000; includeSubDomains"
     return response
 
 @app.get("/health")
@@ -131,7 +210,7 @@ async def resend_webhook(request:Request,db:Session=Depends(db_dep)):
     return webhooks_svc.handle_event(db,event)
 
 @app.get("/api/summary")
-def summary(db:Session=Depends(db_dep)):
+def summary(db:Session=Depends(db_dep),_lead:WaitlistLead=Depends(require_active_lead)):
     total=db.scalar(select(func.count()).select_from(IPO)) or 0
     open_n=db.scalar(select(func.count()).select_from(IPO).where(IPO.status.in_(["Open","Upcoming","Filed"]))) or 0
     listed=db.scalar(select(func.count()).select_from(IPO).where(IPO.status=="Listed")) or 0
@@ -140,7 +219,7 @@ def summary(db:Session=Depends(db_dep)):
     return {"total":total,"active":open_n,"listed":listed,"high_confidence_scores":high_conf,"strict_reliability":S.strict_reliability,"min_confidence":S.min_recommendation_confidence,"last_ingestion":None if not last else {"source":last.source,"status":last.status,"started_at":last.started_at.isoformat(),"finished_at":last.finished_at.isoformat() if last.finished_at else None,"error":last.error}}
 
 @app.get("/api/ipos")
-def ipos(country:str="all",status:str="all",q:str="",limit:int=Query(100,ge=1,le=500),db:Session=Depends(db_dep)):
+def ipos(country:str="all",status:str="all",q:str="",limit:int=Query(100,ge=1,le=500),db:Session=Depends(db_dep),_lead:WaitlistLead=Depends(require_active_lead)):
     stmt=select(IPO)
     if country!="all":stmt=stmt.where(IPO.country==country)
     if status!="all":stmt=stmt.where(IPO.status==status)
@@ -149,7 +228,7 @@ def ipos(country:str="all",status:str="all",q:str="",limit:int=Query(100,ge=1,le
     return [ipo_json(db,x) for x in rows]
 
 @app.get("/api/ipos/{ipo_id}")
-def ipo_detail(ipo_id:int,db:Session=Depends(db_dep)):
+def ipo_detail(ipo_id:int,db:Session=Depends(db_dep),_lead:WaitlistLead=Depends(require_active_lead)):
     ipo=db.get(IPO,ipo_id)
     if not ipo:raise HTTPException(404,"IPO not found")
     out=ipo_json(db,ipo)
@@ -164,35 +243,34 @@ def ipo_detail(ipo_id:int,db:Session=Depends(db_dep)):
     return out
 
 @app.get("/api/ipos/{ipo_id}/changes")
-def ipo_changes(ipo_id:int,db:Session=Depends(db_dep)):
+def ipo_changes(ipo_id:int,db:Session=Depends(db_dep),_lead:WaitlistLead=Depends(require_active_lead)):
     ipo=db.get(IPO,ipo_id)
     if not ipo:raise HTTPException(404,"IPO not found")
     return {"ipo_id":ipo_id,"timeline":changes_svc.timeline(db,ipo_id)}
 
 @app.get("/api/ipos/{ipo_id}/similar")
-def ipo_similar(ipo_id:int,db:Session=Depends(db_dep)):
+def ipo_similar(ipo_id:int,db:Session=Depends(db_dep),_lead:WaitlistLead=Depends(require_active_lead)):
     ipo=db.get(IPO,ipo_id)
     if not ipo:raise HTTPException(404,"IPO not found")
     return similarity_svc.find_similar(db,ipo)
 
 @app.get("/api/ipos/{ipo_id}/valuation")
-def ipo_valuation_detail(ipo_id:int,db:Session=Depends(db_dep)):
+def ipo_valuation_detail(ipo_id:int,db:Session=Depends(db_dep),_lead:WaitlistLead=Depends(require_active_lead)):
     ipo=db.get(IPO,ipo_id)
     if not ipo:raise HTTPException(404,"IPO not found")
     return {"scenario_dcf":dcf_svc.scenario_dcf(ipo),"reverse_dcf":dcf_svc.reverse_dcf(ipo)}
 
 @app.get("/api/model-performance")
-def model_performance(db:Session=Depends(db_dep)):
+def model_performance(db:Session=Depends(db_dep),_lead:WaitlistLead=Depends(require_active_lead)):
     return walkforward_svc.evaluate(db)
 
 @app.get("/api/performance")
-def performance(country:str="all",limit:int=Query(200,ge=1,le=500),db:Session=Depends(db_dep)):
+def performance(country:str="all",limit:int=Query(200,ge=1,le=500),db:Session=Depends(db_dep),_lead:WaitlistLead=Depends(require_active_lead)):
     stmt=select(IPO).where(IPO.status=="Listed")
     if country!="all":stmt=stmt.where(IPO.country==country)
     rows=db.scalars(stmt.order_by(IPO.updated_at.desc()).limit(limit)).all();return [ipo_json(db,x) for x in rows]
 
-@app.get("/api/source-health")
-def source_health(db:Session=Depends(db_dep)):
+def _source_health_rows(db:Session)->list[dict]:
     out=[]
     tiers={"SEC EDGAR":1,"SEC Priced IPOs":1,"NSE":1,"NSE Primary Market Reports":1,"Licensed enrichment feed":3}
     for source,tier in tiers.items():
@@ -208,7 +286,28 @@ def source_health(db:Session=Depends(db_dep)):
     else:email_status="LIVE"
     last_error_msg=last_hard_failed.last_error if last_hard_failed else (last_erroring.last_error if last_erroring else "")
     out.append({"source":f"Email ({S.email_provider.upper()})" if S.enable_email else "Email (disabled)","tier":2,"status":email_status,"last_run":last_sent.sent_at.isoformat() if last_sent and last_sent.sent_at else None,"rows":db.scalar(select(func.count()).select_from(EmailMessage).where(EmailMessage.status.in_([ep.SENT,ep.DELIVERED]))) or 0,"error":last_error_msg})
+    hb_status=heartbeat_svc.status(db,S.worker_interval_seconds)
+    out.append({"source":"Worker","tier":1,"status":hb_status["status"],"last_run":hb_status["last_seen"],"rows":0,"error":hb_status["last_error"]})
     return out
+
+@app.get("/api/source-health")
+def source_health(db:Session=Depends(db_dep),_lead:WaitlistLead=Depends(require_active_lead)):
+    return _source_health_rows(db)
+
+@app.get("/api/admin/ops-summary",dependencies=[Depends(require_admin)])
+def admin_ops_summary(db:Session=Depends(db_dep)):
+    hb_status=heartbeat_svc.status(db,S.worker_interval_seconds)
+    total_forward=db.scalar(select(func.count()).select_from(ScoreSnapshot).where(ScoreSnapshot.is_forward==True)) or 0  # noqa: E712
+    today=datetime.now(timezone.utc).replace(hour=0,minute=0,second=0,microsecond=0)
+    new_today=db.scalar(select(func.count()).select_from(ScoreSnapshot).where(ScoreSnapshot.is_forward==True,ScoreSnapshot.created_at>=today)) or 0  # noqa: E712
+    final_pre_listing=db.scalar(select(func.count()).select_from(ScoreSnapshot).where(ScoreSnapshot.event_stage=="final_pre_listing")) or 0
+    recent_failed_runs=db.scalars(select(IngestionRun).where(IngestionRun.status=="error").order_by(IngestionRun.started_at.desc()).limit(10)).all()
+    return {
+        "source_health":_source_health_rows(db),
+        "worker":hb_status,
+        "predictions":{"total_forward":total_forward,"new_today":new_today,"final_pre_listing":final_pre_listing},
+        "recent_ingestion_failures":[{"source":r.source,"started_at":r.started_at.isoformat(),"error":r.error[:300]} for r in recent_failed_runs],
+    }
 
 @app.get("/api/admin/email-stats")
 def email_stats(x_admin_token:str|None=Header(default=None),db:Session=Depends(db_dep)):
@@ -233,10 +332,10 @@ def admin_process_email_queue(x_admin_token:str|None=Header(default=None),db:Ses
     return process_queue(db)
 
 @app.get("/api/backtest")
-def backtest(db:Session=Depends(db_dep)):return backtest_summary(db)
+def backtest(db:Session=Depends(db_dep),_lead:WaitlistLead=Depends(require_active_lead)):return backtest_summary(db)
 
 @app.get("/api/track-record")
-def track_record(limit:int=100,db:Session=Depends(db_dep)):
+def track_record(limit:int=100,db:Session=Depends(db_dep),_lead:WaitlistLead=Depends(require_active_lead)):
     """The live, immutable forward track record - distinct from /api/backtest
     (which includes retrofitted/backfilled historical scoring). Every row here
     is a ScoreSnapshot written while the IPO's outcome was NOT yet known."""
@@ -278,8 +377,51 @@ def refresh(x_admin_token:str|None=Header(default=None),db:Session=Depends(db_de
     if S.admin_token and (not x_admin_token or not secrets.compare_digest(x_admin_token,S.admin_token)):raise HTTPException(403,"Invalid admin token")
     runs=refresh_all(db);return [{"source":r.source,"status":r.status,"rows_seen":r.rows_seen,"rows_changed":r.rows_changed,"error":r.error} for r in runs]
 
+@app.get("/api/admin/users",dependencies=[Depends(require_admin)])
+def admin_list_users(db:Session=Depends(db_dep)):
+    rows=db.scalars(select(WaitlistLead).order_by(WaitlistLead.created_at.desc())).all()
+    return [{"id":x.id,"email":x.email,"name":x.name,"investor_type":x.investor_type,"markets":x.markets,
+             "access_status":x.access_status,"created_at":x.created_at.isoformat(),
+             "last_login_at":x.last_login_at.isoformat() if x.last_login_at else None} for x in rows]
+
+@app.post("/api/admin/users/{lead_id}/invite",dependencies=[Depends(require_admin)])
+def admin_invite_user(lead_id:int,db:Session=Depends(db_dep)):
+    lead=db.get(WaitlistLead,lead_id)
+    if not lead:raise HTTPException(404,"No such user")
+    if lead.access_status=="DISABLED":raise HTTPException(400,"User is disabled - re-enable first")
+    lead.access_status="INVITED"
+    raw=auth_svc.create_login_token(db,lead,purpose="invite")
+    audit(db,"invite_created",lead.email,lead_id=lead.id)
+    db.commit()
+    result=auth_svc.send_login_email(S,lead,raw)
+    return {"ok":True,"access_status":lead.access_status,"email_sent":result.ok,"email_error":"" if result.ok else result.error}
+
+@app.post("/api/admin/users/{lead_id}/disable",dependencies=[Depends(require_admin)])
+def admin_disable_user(lead_id:int,db:Session=Depends(db_dep)):
+    lead=db.get(WaitlistLead,lead_id)
+    if not lead:raise HTTPException(404,"No such user")
+    lead.access_status="DISABLED"
+    auth_svc.revoke_all_sessions(db,lead.id)
+    audit(db,"user_disabled",lead.email,lead_id=lead.id)
+    db.commit()
+    return {"ok":True,"access_status":lead.access_status}
+
+@app.post("/api/admin/users/{lead_id}/enable",dependencies=[Depends(require_admin)])
+def admin_enable_user(lead_id:int,db:Session=Depends(db_dep)):
+    lead=db.get(WaitlistLead,lead_id)
+    if not lead:raise HTTPException(404,"No such user")
+    lead.access_status="INVITED" if lead.access_status=="DISABLED" else lead.access_status
+    audit(db,"user_re_enabled",lead.email,lead_id=lead.id)
+    db.commit()
+    return {"ok":True,"access_status":lead.access_status}
+
+@app.get("/api/admin/audit-log",dependencies=[Depends(require_admin)])
+def admin_audit_log(limit:int=Query(200,ge=1,le=1000),db:Session=Depends(db_dep)):
+    rows=db.scalars(select(AdminAuditLog).order_by(AdminAuditLog.created_at.desc()).limit(limit)).all()
+    return [{"id":x.id,"actor":x.actor,"action":x.action,"target":x.target,"meta":x.meta,"created_at":x.created_at.isoformat()} for x in rows]
+
 @app.get("/api/events")
-async def events(request:Request):
+async def events(request:Request,_lead:WaitlistLead=Depends(require_active_lead)):
     async def gen():
         last=None
         while True:

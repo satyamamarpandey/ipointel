@@ -53,6 +53,14 @@ def welcome_email(base_url: str, name: str, referral_code: str, markets: str, to
             "Research software only. No IPO outcome is guaranteed. Not personalized investment advice.")
     return "You're on the IPO Intelligence early-access list", _shell("Early access confirmed - here's what happens next.", body, unsub, prefs), text
 
+def login_link_email(base_url: str, login_url: str, token: str) -> tuple[str, str, str]:
+    unsub, prefs = _urls(base_url, token)
+    body = f"""<p style="margin:0 0 14px;">Click below to sign in to the IPO Intelligence Terminal. This link works once and expires in 15 minutes.</p>
+<p style="margin:0 0 22px;"><a href="{esc(login_url)}" style="display:inline-block;background:{ACCENT};color:#ffffff;text-decoration:none;padding:11px 20px;border-radius:8px;font-weight:600;">Sign in</a></p>
+<p style="margin:0;color:#5b6b78;font-size:12px;">If you didn't request this, you can ignore this email — no account action will be taken.</p>"""
+    text = f"Sign in to IPO Intelligence Terminal: {login_url}\n\nThis link works once and expires in 15 minutes. If you didn't request this, ignore this email."
+    return "Your IPO Intelligence sign-in link", _shell("Your one-time sign-in link (expires in 15 minutes).", body, unsub, prefs), text
+
 def _pill(label: str, value: str) -> str:
     return f'<div style="display:inline-block;background:#f1f4f6;border-radius:6px;padding:6px 10px;margin:0 6px 6px 0;font-size:12px;"><span style="color:#7b8a97;">{esc(label)}</span> <b>{esc(value)}</b></div>'
 
