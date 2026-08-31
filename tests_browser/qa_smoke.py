@@ -25,7 +25,7 @@ from playwright.sync_api import sync_playwright
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8010"
 MAILPIT_URL = os.environ.get("MAILPIT_URL", "http://127.0.0.1:8025")
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
-VIEWPORTS = [("desktop-1920", 1920, 1080), ("desktop-1440", 1440, 900), ("tablet-1024", 1024, 900), ("tablet-768", 768, 1024), ("mobile-390", 390, 844)]
+VIEWPORTS = [("desktop-1920", 1920, 1080), ("desktop-1644", 1644, 900), ("desktop-1440", 1440, 900), ("tablet-1024", 1024, 900), ("tablet-768", 768, 1024), ("mobile-390", 390, 844)]
 TABS = ["radar", "calendar", "compare", "history", "reliability", "trackrecord", "modelperf"]
 
 
@@ -119,6 +119,55 @@ def check_overflow(page, tag):
     if overflow and overflow > 4:
         results["warnings"].append(f"[{tag}] horizontal overflow: {overflow}px")
 
+def layout_assertions(page, tag, viewport_width):
+    """Computed-style/bounding-box checks for the specific failure mode a
+    2026-08-31 manual review caught that DOM/console checks missed entirely:
+    a stale/unstyled page render (oversized raw-SVG logo, visible hamburger
+    on desktop, visibly-laid-out skip-link, nav links running together).
+    These assert against computed values, not screenshots, so they fail
+    loudly and specifically instead of silently passing on a broken render."""
+    is_desktop = viewport_width >= 900
+    data = page.evaluate("""() => {
+        const cs = el => el ? getComputedStyle(el) : null;
+        const rect = el => el ? el.getBoundingClientRect() : null;
+        const $ = s => document.querySelector(s);
+        const logo = $('.navbrand svg'), nav = $('.sitenav'), burger = $('.navburger'),
+              navlinks = $('.navlinks'), skip = $('.skip-link'), hero = $('.hero-wrap'), h1 = $('h1');
+        return {
+            logoH: logo ? Math.round(rect(logo).height) : null,
+            burgerDisplay: burger ? cs(burger).display : null,
+            navlinksDisplay: navlinks ? cs(navlinks).display : null,
+            navH: nav ? Math.round(rect(nav).height) : null,
+            skipPosition: skip ? cs(skip).position : null,
+            skipLeft: skip ? cs(skip).left : null,
+            heroTop: hero ? Math.round(rect(hero).top) : null,
+            bodyFontSize: parseFloat(cs(document.body).fontSize),
+            h1FontSize: h1 ? parseFloat(cs(h1).fontSize) : null,
+        };
+    }""")
+    results["checks"] += 1
+    if data["logoH"] is not None and data["logoH"] > 40:
+        results["errors"].append(f"[{tag}] logo mark height {data['logoH']}px exceeds 40px - looks like unstyled/raw SVG")
+    skip_offscreen = data["skipPosition"] == "absolute" and str(data["skipLeft"]).startswith("-")
+    if not skip_offscreen:
+        results["errors"].append(f"[{tag}] skip-link is not off-screen by default (position={data['skipPosition']}, left={data['skipLeft']})")
+    if data["heroTop"] is not None and data["navH"] is not None and data["heroTop"] > data["navH"] + 40:
+        results["warnings"].append(f"[{tag}] hero starts {data['heroTop']}px down, well past the nav ({data['navH']}px) - unexpected gap above the fold")
+    if data["bodyFontSize"] is not None and data["bodyFontSize"] < 15:
+        results["errors"].append(f"[{tag}] body font-size {data['bodyFontSize']}px looks unstyled")
+    if is_desktop:
+        if data["burgerDisplay"] not in ("none", None):
+            results["errors"].append(f"[{tag}] hamburger is visible on desktop (display={data['burgerDisplay']})")
+        if data["navlinksDisplay"] in ("none", None):
+            results["errors"].append(f"[{tag}] desktop nav links are hidden at a desktop width")
+        if data["h1FontSize"] is not None and data["h1FontSize"] < 40:
+            results["errors"].append(f"[{tag}] H1 font-size {data['h1FontSize']}px too small for a desktop hero")
+    else:
+        if data["burgerDisplay"] in ("none", None):
+            results["errors"].append(f"[{tag}] hamburger is hidden at a mobile width")
+        if data["navlinksDisplay"] not in ("none", None):
+            results["errors"].append(f"[{tag}] desktop nav links are visible at a mobile width (display={data['navlinksDisplay']})")
+
 def main():
     from urllib.parse import urlparse
     host = urlparse(BASE).hostname or "127.0.0.1"
@@ -138,8 +187,10 @@ def main():
             page = ctx.new_page()
             record_console(page, f"landing@{name}")
             page.goto(f"{BASE}/", wait_until="domcontentloaded", timeout=20000)
+            page.wait_for_timeout(300)
             results["checks"] += 1
             check_overflow(page, f"landing@{name}")
+            layout_assertions(page, f"landing@{name}", w)
             if page.locator("#waitlistForm, form").count() == 0:
                 results["warnings"].append(f"[landing@{name}] no signup form found")
             ctx.close()

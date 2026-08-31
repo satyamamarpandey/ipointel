@@ -208,6 +208,15 @@ async def security_headers(request:Request,call_next):
     response.headers["Referrer-Policy"]="strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"]="camera=(), microphone=(), geolocation=()"
     response.headers["Content-Security-Policy"]=_CSP
+    if request.url.path.startswith("/static/"):
+        # Always revalidate (ETag/Last-Modified, both already set by
+        # StaticFiles) rather than letting the browser reuse a cached
+        # response on faith - with no Cache-Control at all, browsers apply
+        # their own heuristic freshness window, which is exactly how a
+        # stale/mid-edit CSS response can silently keep being served across
+        # ordinary reloads. no-cache still allows a cheap 304, it just
+        # forces a round-trip to confirm freshness every time.
+        response.headers["Cache-Control"]="no-cache"
     if request.url.scheme=="https":  # never claim HSTS over a plain-HTTP connection - it would be a lie the browser might cache
         response.headers["Strict-Transport-Security"]="max-age=31536000; includeSubDomains"
     return response

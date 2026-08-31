@@ -327,15 +327,21 @@ html.js .reveal.in{transform:none}
   .evidencecard{grid-template-columns:1fr}
   .metricgrid{grid-template-columns:repeat(3,1fr)}
 }
-@media(max-width:760px){
-  .container{padding:0 18px}
-  .disclaimer{padding:0 18px}
+/* Nav switches to the hamburger earlier than the rest of the mobile layout
+   (900px, not 760px) - four nav links + two buttons + the logo genuinely
+   don't fit in a 768px-wide bar; confirmed via a real screenshot where
+   "IPOIntelligence" and "Product" ran together with no gap at 768px. */
+@media(max-width:900px){
   .navlinks{display:none}
   .navactions{display:none}
   .navburger{display:inline-flex;align-items:center;justify-content:center}
   .mobilenav.open{display:block;position:fixed;inset:65px 0 0 0;background:var(--bg2);z-index:39;padding:20px;overflow:auto}
   .mobilenav a{display:block;padding:14px 4px;border-bottom:1px solid var(--line-soft);color:var(--text);text-decoration:none;font-weight:700}
   .mobilenav .btn{width:100%;margin-top:16px}
+}
+@media(max-width:760px){
+  .container{padding:0 18px}
+  .disclaimer{padding:0 18px}
   .hero-grid{padding:36px 0 44px;gap:34px}
   .proof{grid-template-columns:1fr}
   .herobtns .btn{flex:1;min-width:140px}
