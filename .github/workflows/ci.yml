@@ -31,7 +31,18 @@ jobs:
         run: python -m alembic upgrade head
         env:
           DATABASE_URL: ${{ env.TEST_POSTGRES_URL }}
-      - name: PostgreSQL test suite (same 90+ tests + Postgres-specific coverage)
+      - name: PostgreSQL test suite (same tests + Postgres-specific coverage)
         run: pytest -q
         env:
           TEST_DATABASE_URL: ${{ env.TEST_POSTGRES_URL }}
+      - name: Dependency vulnerability scan
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt
+      - name: Docker build validation
+        run: docker build -t ipo-web-ci-check .
+      - name: Docker Compose config validation
+        run: |
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.production.yml config -q
+
