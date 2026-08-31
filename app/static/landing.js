@@ -32,6 +32,27 @@
     burger.setAttribute('aria-expanded', String(open));
   });
 
+  // ---------- nav scroll depth ----------
+  const siteNav = document.querySelector('.sitenav');
+  if (siteNav) {
+    const onScroll = () => siteNav.classList.toggle('scrolled', window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+  }
+
+  // ---------- hero surface pointer tilt (decoration only, never gates content) ----------
+  const REDUCE_MOTION_GLOBAL = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const heroSurface = document.getElementById('heroSurface');
+  if (heroSurface && window.matchMedia('(pointer: fine)').matches && !REDUCE_MOTION_GLOBAL) {
+    const wrap = heroSurface.closest('.hero-surface-wrap');
+    wrap.addEventListener('mousemove', e => {
+      const r = wrap.getBoundingClientRect();
+      const px = (e.clientX - r.left) / r.width - 0.5, py = (e.clientY - r.top) / r.height - 0.5;
+      heroSurface.style.transform = `perspective(1200px) rotateY(${px * 2.2}deg) rotateX(${-py * 2.2}deg)`;
+    });
+    wrap.addEventListener('mouseleave', () => { heroSurface.style.transform = 'perspective(1200px)'; });
+  }
+
   // ---------- signup submit helper (shared by hero form + modal) ----------
   function utm(name) { return new URLSearchParams(location.search).get(name) || ''; }
   async function submitWaitlist(fields, msgEl, btn) {
@@ -156,26 +177,50 @@
     setTimeout(() => { el.textContent = text; el.style.opacity = '1'; }, 140);
   }
 
-  function renderDimension() {
+  function renderDimension(animateIn) {
     if (!currentIpo) return;
     const ipo = currentIpo;
     document.getElementById('pcDimLabel').textContent = DIM_LABEL[currentDim];
-    swapNumber(document.getElementById('pcBigScore'), String(ipo[currentDim]));
+    const scoreEl = document.getElementById('pcBigScore');
+    if (animateIn) countUp(scoreEl, ipo[currentDim]); else swapNumber(scoreEl, String(ipo[currentDim]));
     document.getElementById('pcEvidence').innerHTML = evidenceRows(ipo).map(([cls, icon, label]) =>
       `<div class="${cls}"><span class="mk">${icon}</span> ${label}</div>`).join('');
   }
 
+  // First-paint-only resolve animation for the hero score - text content is
+  // always set synchronously as the final frame, so a stalled rAF (throttled
+  // background tab, etc.) still leaves the correct number on screen.
+  function countUp(el, target) {
+    if (!el) return;
+    if (REDUCE_MOTION) { el.textContent = String(target); return; }
+    const decimals = (String(target).split('.')[1] || '').length;
+    const start = performance.now(), dur = 700;
+    function tick(now) {
+      const t = Math.min(1, (now - start) / dur);
+      const eased = 1 - Math.pow(1 - t, 3);
+      el.textContent = (target * eased).toFixed(decimals);
+      if (t < 1) requestAnimationFrame(tick); else el.textContent = String(target);
+    }
+    requestAnimationFrame(tick);
+  }
+
   function renderPreview(ipo, live) {
+    const firstRender = !currentIpo;
     currentIpo = ipo; currentLive = live;
     document.getElementById('pcLabel').textContent = live ? 'Live coverage' : 'Illustrative analysis';
     document.getElementById('pcCompany').textContent = ipo.company;
     document.getElementById('pcTag').textContent = live ? ipo.country : 'SAMPLE';
-    document.getElementById('pcOverall').textContent = ipo.overall;
-    document.getElementById('pcListing').textContent = ipo.listing;
-    document.getElementById('pcLongTerm').textContent = ipo.long_term;
+    if (firstRender) {
+      [['pcOverall', ipo.overall], ['pcListing', ipo.listing], ['pcLongTerm', ipo.long_term]]
+        .forEach(([id, val]) => countUp(document.getElementById(id), val));
+    } else {
+      document.getElementById('pcOverall').textContent = ipo.overall;
+      document.getElementById('pcListing').textContent = ipo.listing;
+      document.getElementById('pcLongTerm').textContent = ipo.long_term;
+    }
     document.getElementById('pcConfidence').textContent = ipo.confidence + '%';
     document.getElementById('pcValuation').textContent = valuationTag(ipo.valuation);
-    renderDimension();
+    renderDimension(firstRender);
   }
 
   document.querySelectorAll('.dimtab').forEach(tab => tab.addEventListener('click', () => {

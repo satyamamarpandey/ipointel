@@ -44,6 +44,8 @@ img{max-width:100%}
 ::selection{background:rgba(114,230,194,.28);color:#fff}
 .skip-link{position:absolute;left:-999px;top:auto;background:var(--accent);color:var(--accent-ink);padding:10px 16px;border-radius:8px;font-weight:800;z-index:999}
 .skip-link:focus{left:16px;top:16px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.btn:focus-visible,.dimtab:focus-visible,.tab:focus-visible{outline-offset:3px}
 
 /* ---------- Type scale ---------- */
 .eyebrow{display:inline-flex;align-items:center;gap:8px;padding:6px 11px;border:1px solid #243b49;background:rgba(12,23,34,.6);border-radius:999px;color:var(--accent);font-size:11.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase}
@@ -75,7 +77,8 @@ h1,h2,h3{margin:0;font-weight:800;letter-spacing:-.03em}
 .btn.primary .arrow,.herobtns .arrow{display:inline-block;transition:transform var(--motion-fast) var(--ease-standard)}
 .btn:hover .arrow{transform:translateX(3px)}
 
-.sitenav{position:sticky;top:0;z-index:var(--z-nav);backdrop-filter:blur(14px);background:rgba(7,13,19,.82);border-bottom:1px solid var(--line-hair)}
+.sitenav{position:sticky;top:0;z-index:var(--z-nav);backdrop-filter:blur(14px);background:rgba(7,13,19,.82);border-bottom:1px solid var(--line-hair);transition:background var(--motion-medium),border-color var(--motion-medium),box-shadow var(--motion-medium)}
+.sitenav.scrolled{background:rgba(6,11,16,.94);border-bottom-color:var(--line-soft);box-shadow:0 1px 0 rgba(0,0,0,.3),0 12px 28px -18px rgba(0,0,0,.5)}
 .sitenav .container{display:flex;align-items:center;justify-content:space-between;padding-top:15px;padding-bottom:15px}
 .navbrand{display:flex;align-items:center;gap:9px;text-decoration:none}
 .navbrand svg{width:26px;height:26px;flex:none}
@@ -100,7 +103,8 @@ section[id],main[id]{scroll-margin-top:96px}
 .tickerrail:hover .tickertrack{animation-play-state:paused}
 @media(prefers-reduced-motion:reduce){.tickertrack{animation:none}}
 @keyframes ticker-scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
-.tick{display:flex;align-items:center;gap:10px;padding:9px 26px;font-size:12.5px;white-space:nowrap;border-right:1px solid var(--line-hair);color:var(--muted)}
+.tick{display:flex;align-items:center;gap:10px;padding:10px 26px;font-size:12.5px;white-space:nowrap;border-right:1px solid var(--line-hair);color:var(--muted);transition:background var(--motion-fast)}
+.tick:hover{background:rgba(126,168,255,.05)}
 .tick .cc{font-weight:800;color:var(--muted2);letter-spacing:.06em;font-size:10.5px}
 .tick .co{color:var(--text);font-weight:700}
 .tick .sc{color:var(--accent);font-weight:800}
@@ -119,8 +123,12 @@ section[id],main[id]{scroll-margin-top:96px}
 .proof b{display:block;font-size:18px;letter-spacing:-.02em}
 .proof span{font-size:11.5px;color:var(--muted)}
 
-/* Hero live product surface — asymmetric, occupies the lower fold */
-.hero-surface{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(260px,.85fr);gap:0;border:1px solid var(--line);border-radius:var(--radius-lg);overflow:hidden;background:linear-gradient(175deg,#0e1b27,#0a1420);box-shadow:var(--shadow)}
+/* Hero live product surface — asymmetric, occupies the lower fold.
+   The gradient-border + pointer-tilt technique is decoration only: it
+   never gates the content underneath (safe under the reveal rule above -
+   see landing.js heroTilt(), which no-ops under reduced-motion / touch). */
+.hero-surface-wrap{position:relative;border-radius:calc(var(--radius-lg) + 1px);padding:1px;background:linear-gradient(160deg,rgba(126,168,255,.35),rgba(114,230,194,.12) 40%,rgba(255,255,255,.05));box-shadow:0 1px 0 rgba(255,255,255,.03) inset,var(--shadow)}
+.hero-surface{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(260px,.85fr);gap:0;border-radius:var(--radius-lg);overflow:hidden;background:linear-gradient(175deg,#0e1b27,#0a1420);transform:perspective(1200px);transition:transform var(--motion-medium) var(--ease-standard);will-change:transform}
 .surface-main{padding:26px 28px;border-right:1px solid var(--line-soft)}
 .surface-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:20px}
 .surface-head .pctitle{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:800;display:flex;align-items:center;gap:7px}
@@ -265,8 +273,8 @@ section[id],main[id]{scroll-margin-top:96px}
 /* ---------- Forward accountability — locked prediction ---------- */
 .forwardsection{padding:64px 0}
 .forwardgrid{margin-top:32px;display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.lockcard{border:1px solid var(--line-soft);border-radius:16px;padding:22px;position:relative}
-.lockcard.frozen{background:linear-gradient(175deg,#0e1b27,#0a1420)}
+.lockcard{border:1px solid var(--line-soft);border-radius:16px;padding:22px;position:relative;transition:border-color var(--motion-medium)}
+.lockcard.frozen{background:linear-gradient(175deg,#0e1b27,#0a1420);border-color:rgba(126,168,255,.22)}
 .lockcard .lockhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
 .lockcard .lockhead h4{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 .lockbadge{font-size:10px;font-weight:800;letter-spacing:.06em;padding:4px 8px;border-radius:6px;border:1px solid var(--line);color:var(--muted2);display:inline-flex;align-items:center;gap:5px}
@@ -329,7 +337,8 @@ section[id],main[id]{scroll-margin-top:96px}
 .authdivider{display:flex;align-items:center;gap:12px;color:var(--muted2);font-size:12px;margin:16px 0;text-transform:uppercase;letter-spacing:.05em}
 .authdivider:before,.authdivider:after{content:"";flex:1;height:1px;background:var(--line)}
 .authpage{min-height:calc(100vh - 65px);display:flex;align-items:center;justify-content:center;padding:60px 20px}
-.authpage .authcard{max-width:440px;width:100%;background:linear-gradient(175deg,#101f2c,#0a141d);border:1px solid var(--line);border-radius:var(--radius-lg);padding:28px;box-shadow:var(--shadow)}
+.authpage .authcard{max-width:440px;width:100%;background:linear-gradient(175deg,#101f2c,#0a141d);border:1px solid var(--line);border-radius:var(--radius-lg);padding:28px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.authpage .authcard:before{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent2),var(--accent))}
 .authpage .navbrand{justify-content:center;margin-bottom:26px}
 
 /* ---------- Scroll reveal ----------
@@ -340,6 +349,21 @@ section[id],main[id]{scroll-margin-top:96px}
    staying invisible if the observer never fires for it. */
 html.js .reveal{transform:translateY(14px);transition:transform var(--motion-slow) var(--ease-standard)}
 html.js .reveal.in{transform:none}
+/* Sequential stagger for row-like children of a revealed section - additive
+   timing only (delay), never an opacity/visibility gate, so the "content
+   invisible until JS fires" failure class from earlier this project stays
+   impossible even here. */
+html.js .reveal .decisioncard,html.js .reveal .flagrow,html.js .reveal .tlrow,
+html.js .reveal .efrow,html.js .reveal .usprow,html.js .reveal .lockcard{transition:transform var(--motion-slow) var(--ease-standard)}
+html.js .reveal.in .decisioncard:nth-child(2){transition-delay:60ms}
+html.js .reveal.in .decisioncard:nth-child(3){transition-delay:120ms}
+html.js .reveal.in .flagrow:nth-child(2){transition-delay:40ms}
+html.js .reveal.in .flagrow:nth-child(3){transition-delay:80ms}
+html.js .reveal.in .flagrow:nth-child(4){transition-delay:120ms}
+html.js .reveal.in .tlrow:nth-child(2){transition-delay:60ms}
+html.js .reveal.in .tlrow:nth-child(3){transition-delay:120ms}
+html.js .reveal.in .tlrow:nth-child(4){transition-delay:180ms}
+html.js .reveal.in .lockcard:nth-child(2){transition-delay:80ms}
 
 /* =====================================================================
    Authenticated app shell (dashboard) - data-dense terminal, brand-aligned
@@ -354,21 +378,23 @@ html.js .reveal.in{transform:none}
 .pill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:999px;padding:6px 10px;font-size:12px;color:var(--muted)}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--good)}
 .metricgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
-.metric{background:var(--panel);border:1px solid var(--line);padding:16px;border-radius:14px}
-.metric span{color:var(--muted);font-size:12px}
-.metric b{font-size:25px;display:block;margin-top:4px}
+.metric{background:var(--panel);border:1px solid var(--line);padding:16px;border-radius:14px;transition:border-color var(--motion-fast),transform var(--motion-fast)}
+.metric:hover{border-color:#2f4a5d;transform:translateY(-1px)}
+.metric span{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+.metric b{font-size:25px;display:block;margin-top:5px;letter-spacing:-.02em}
 .toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0}
 .toolbar input,.toolbar select{background:var(--panel);border:1px solid var(--line);color:var(--text);padding:10px 12px;border-radius:10px;min-height:42px;font-family:inherit}
 .split{display:grid;grid-template-columns:1fr 360px;gap:16px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden}
 .panelhead{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:12px}
-.panelhead h3{margin:0;font-size:16px}
+.panelhead h3{margin:0;font-size:15px;text-transform:uppercase;letter-spacing:.04em;font-weight:800;color:var(--text-dim)}
 .tablewrap{overflow:auto}
 .table{width:100%;border-collapse:collapse;font-size:13px}
 .table th,.table td{padding:12px 14px;border-bottom:1px solid #172735;text-align:left;white-space:nowrap}
 .table th{color:#8ea2b4;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
-.table tr[data-id]{cursor:pointer}
+.table tr[data-id]{cursor:pointer;transition:background var(--motion-fast)}
 .table tr[data-id]:hover{background:#0f202d}
+.pill{transition:border-color var(--motion-fast)}
 .score{font-weight:800}
 .good{color:var(--good)}
 .warn{color:var(--warn)}

@@ -1,0 +1,10 @@
+<!-- LEGACY (v1) mark - retired 2026-08-31. Ascending-bars-and-ring motif,
+     replaced by the bracketed decision-gate mark (../logo-mark.svg) because
+     it read as a generic candlestick-chart/uptrend icon. Kept here only as
+     a fallback reference, not linked from any page. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="IPO Intelligence mark (legacy v1)">
+  <rect x="5" y="17" width="5" height="9" rx="1.5" fill="#3a5568"/>
+  <rect x="13" y="11" width="5" height="15" rx="1.5" fill="#7ea8ff"/>
+  <rect x="21" y="5" width="5" height="21" rx="1.5" fill="#72e6c2"/>
+  <circle cx="23.5" cy="5" r="3.4" fill="none" stroke="#72e6c2" stroke-width="1.8"/>
+</svg>
