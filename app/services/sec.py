@@ -2,9 +2,11 @@ from __future__ import annotations
 import re, xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 import httpx
+from .net_safety import validate_outbound_url
 
 BASE="https://www.sec.gov"
 DATA="https://data.sec.gov"
+_ALLOWED_HOSTS={"www.sec.gov","sec.gov","data.sec.gov"}
 
 def _client(ua:str):
     return httpx.Client(headers={"User-Agent":ua,"Accept-Language":"en-US,en;q=0.9"},timeout=20,follow_redirects=True)
@@ -49,6 +51,9 @@ def parse_price_range(text:str):
     return low,high
 
 def filing_text(url:str,user_agent:str):
+    # url comes from an href parsed out of SEC's own atom-feed content
+    # (parse_atom above), not a hardcoded literal - validate before fetching.
+    validate_outbound_url(url,allowed_hosts=_ALLOWED_HOSTS)
     with _client(user_agent) as c:
         r=c.get(url); r.raise_for_status(); return re.sub(r"<[^>]+>"," ",r.text)
 

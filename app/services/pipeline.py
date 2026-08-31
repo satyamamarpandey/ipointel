@@ -7,6 +7,9 @@ from ..models import IPO, ScoreSnapshot, Provenance, IngestionRun, PerformanceSn
 from ..scoring import compute_score, feature_snapshot, FEATURE_SCHEMA_VERSION
 from ..config import get_settings
 from . import sec,nse,market,enrichment
+from .net_safety import validate_outbound_url,UnsafeUrlError
+
+_NSE_ALLOWED_HOSTS={"nsearchives.nseindia.com","www.nseindia.com","nseindia.com","archives.nseindia.com"}
 
 def now(): return datetime.now(timezone.utc)
 
@@ -156,6 +159,9 @@ def ingest_nse_history(db:Session,max_reports=3):
     with httpx.Client(headers={"User-Agent":"Mozilla/5.0 IPOIntelligence/2.0"},timeout=30,follow_redirects=True) as c:
         for label,url in links:
             try:
+                # url comes from an href parsed out of NSE's own archive
+                # page (nse.archive_links), not a hardcoded literal.
+                validate_outbound_url(url,allowed_hosts=_NSE_ALLOWED_HOSTS)
                 r=c.get(url);r.raise_for_status()
                 for x in nse.parse_monthly_xlsx(r.content):
                     seen+=1;row={"company":x["company"],"symbol":x.get("symbol","") or "","country":"India","exchange":"NSE/BSE","status":"Listed","currency":"INR","final_price":x.get("issue_price"),"listing_date":x.get("listing_date","") or "","issue_size_m":x.get("issue_size"),"raw":x.get("raw",{})}

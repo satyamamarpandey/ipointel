@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio,secrets,time,csv,io,json
+import asyncio,secrets,time,csv,io,json,logging,uuid
 from contextlib import asynccontextmanager
 from collections import defaultdict,deque
 from datetime import datetime,timezone,timedelta
@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse,StreamingResponse,RedirectResponse,JS
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select,func,or_
 from sqlalchemy.orm import Session
-from .config import get_settings
+from .config import get_settings,validate_production_settings
 from .db import init_db,SessionLocal
 from .models import IPO,ScoreSnapshot,Provenance,PerformanceSnapshot,IngestionRun,WaitlistLead,EmailMessage,PredictionOutcome,AdminAuditLog
 from .schemas import WaitlistIn,WaitlistOut
@@ -28,13 +28,28 @@ from .services import sensitivity as sensitivity_svc
 from .services import changes as changes_svc
 from .services import walkforward as walkforward_svc
 
-S=get_settings(); BASE=Path(__file__).parent; STATIC=BASE/"static"
+logging.basicConfig(level=logging.INFO,format="%(message)s")
+S=get_settings(); validate_production_settings(S); BASE=Path(__file__).parent; STATIC=BASE/"static"
 @asynccontextmanager
 async def lifespan(app):
     init_db()
     yield
 
 app=FastAPI(title=S.app_name,version="2.0.0",docs_url="/api/docs",redoc_url=None,lifespan=lifespan)
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request:Request,exc:Exception):
+    # Never leak exception details to the client - the traceback is logged
+    # here (server-side only), keyed by the same request_id the client sees,
+    # so an operator can find it without exposing it publicly. Starlette's
+    # ExceptionMiddleware intercepts the exception before it would reach the
+    # security_headers middleware's own try/except, so this is where the
+    # web-request error path is actually logged, not there.
+    request_id=getattr(request.state,"request_id","unknown")
+    logging.getLogger("app.access").exception(json.dumps({"level":"error","component":"web",
+        "request_id":request_id,"route":request.url.path,"status":500,"msg":"unhandled exception"}))
+    return JSONResponse(status_code=500,content={"error":"internal_server_error","request_id":request_id})
+
 app.mount("/static",StaticFiles(directory=STATIC),name="static")
 rate=defaultdict(lambda:deque(maxlen=20))
 auth_rate=defaultdict(lambda:deque(maxlen=20))
@@ -134,9 +149,25 @@ def auth_me(request:Request,db:Session=Depends(db_dep)):
     lead=auth_svc.get_lead_from_session(db,request.cookies.get(auth_svc.SESSION_COOKIE))
     if not lead:return {"authenticated":False}
     return {"authenticated":True,"email":lead.email,"access_status":lead.access_status}
+access_log=logging.getLogger("app.access")
+
 @app.middleware("http")
 async def security_headers(request:Request,call_next):
-    response=await call_next(request)
+    request_id=request.headers.get("X-Request-Id") or uuid.uuid4().hex[:16]
+    request.state.request_id=request_id
+    t0=time.monotonic()
+    try:
+        response=await call_next(request)
+        status=response.status_code
+    except Exception:
+        duration_ms=round((time.monotonic()-t0)*1000,1)
+        access_log.exception(json.dumps({"level":"error","component":"web","request_id":request_id,
+            "route":request.url.path,"duration_ms":duration_ms,"status":500,"msg":"unhandled exception"}))
+        raise
+    duration_ms=round((time.monotonic()-t0)*1000,1)
+    access_log.info(json.dumps({"level":"info","component":"web","request_id":request_id,
+        "route":request.url.path,"method":request.method,"duration_ms":duration_ms,"status":status}))
+    response.headers["X-Request-Id"]=request_id
     response.headers["X-Content-Type-Options"]="nosniff"
     response.headers["X-Frame-Options"]="DENY"
     response.headers["Referrer-Policy"]="strict-origin-when-cross-origin"
@@ -149,7 +180,9 @@ async def security_headers(request:Request,call_next):
 @app.get("/health")
 def health(db:Session=Depends(db_dep)):
     try:db.scalar(select(func.count()).select_from(IPO));return {"status":"ok","version":"2.0.0","time":datetime.now(timezone.utc).isoformat()}
-    except Exception as e:raise HTTPException(503,str(e))
+    except Exception as e:
+        logging.getLogger("app.access").warning(json.dumps({"level":"warning","component":"web","route":"/health","msg":f"{type(e).__name__}: {e}"}))
+        raise HTTPException(503,"database unavailable")
 
 @app.post("/api/waitlist",response_model=WaitlistOut)
 def waitlist(payload:WaitlistIn,request:Request,db:Session=Depends(db_dep)):
