@@ -243,12 +243,14 @@ section[id],main[id]{scroll-margin-top:88px}
 .authpage .authcard{max-width:440px;width:100%}
 .authpage .navbrand{justify-content:center;margin-bottom:26px}
 
-/* ---------- Scroll reveal (progressive enhancement only - see the inline
-   `html.js` script in each page's <head>. Without it, or if it fails,
-   .reveal content is fully visible by default; nothing depends on JS to
-   become readable.) ---------- */
-html.js .reveal{opacity:0;transform:translateY(18px);transition:opacity .6s var(--ease),transform .6s var(--ease)}
-html.js .reveal.in{opacity:1;transform:none}
+/* ---------- Scroll reveal ----------
+   Content is ALWAYS at opacity:1 - never gated on IntersectionObserver
+   firing, a screenshot tool scrolling, or JS running at all. The only
+   effect is a small position settle so an off-screen-to-on-screen
+   transition still reads as "revealed" without any risk of content
+   staying invisible if the observer never fires for it. */
+html.js .reveal{transform:translateY(14px);transition:transform .5s var(--ease)}
+html.js .reveal.in{transform:none}
 
 /* =====================================================================
    Authenticated app shell (dashboard) - data-dense terminal, brand-aligned
