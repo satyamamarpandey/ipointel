@@ -25,7 +25,7 @@ from playwright.sync_api import sync_playwright
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8010"
 MAILPIT_URL = os.environ.get("MAILPIT_URL", "http://127.0.0.1:8025")
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
-VIEWPORTS = [("desktop-1440", 1440, 900), ("tablet-1024", 1024, 900), ("tablet-768", 768, 1024), ("mobile-390", 390, 844)]
+VIEWPORTS = [("desktop-1920", 1920, 1080), ("desktop-1440", 1440, 900), ("tablet-1024", 1024, 900), ("tablet-768", 768, 1024), ("mobile-390", 390, 844)]
 TABS = ["radar", "calendar", "compare", "history", "reliability", "trackrecord", "modelperf"]
 
 
@@ -152,16 +152,16 @@ def main():
         record_console(page, "waitlist")
         page.goto(f"{BASE}/", wait_until="domcontentloaded", timeout=20000)
         test_email = f"qa.browser.{int(time.time())}@example.com"
-        if page.locator("#waitlist #email").count():
-            page.fill("#waitlist #email", test_email)
-            page.fill("#waitlist #name", "QA Browser Test")
-            page.click("#waitlist button[type=submit]")
+        if page.locator("#waitlistForm #email").count():
+            page.fill("#waitlistForm #email", test_email)
+            page.fill("#waitlistForm #name", "QA Browser Test")
+            page.click("#waitlistForm button[type=submit]")
             page.wait_for_timeout(1500)
-            msg = page.locator("#message").inner_text()
+            msg = page.locator("#waitlistForm #message").inner_text()
             if "reserved" not in msg.lower() and "already" not in msg.lower():
                 results["warnings"].append(f"[waitlist] unexpected success message: {msg!r}")
         else:
-            results["warnings"].append("[waitlist] #waitlist form not found on landing page")
+            results["warnings"].append("[waitlist] #waitlistForm not found on landing page")
 
         invalid = page.evaluate(f"""async () => {{
             const r = await fetch('/api/waitlist', {{method:'POST', headers:{{'Content-Type':'application/json'}},
@@ -178,6 +178,55 @@ def main():
         }}""")
         if "already" not in dup1.lower():
             results["warnings"].append(f"[waitlist] duplicate signup did not report already-registered: {dup1!r}")
+        ctx.close()
+
+        # Early-access modal: 3s delay, ESC dismiss + persistence (does not
+        # reopen on reload), then a real submit via the modal's own form.
+        ctx = browser.new_context(viewport={"width": 1440, "height": 900})
+        page = ctx.new_page()
+        record_console(page, "modal")
+        page.goto(f"{BASE}/", wait_until="domcontentloaded", timeout=20000)
+        overlay = page.locator("#modalOverlay")
+        if overlay.count() == 0:
+            results["errors"].append("[modal] #modalOverlay not present in DOM")
+        else:
+            page.wait_for_timeout(3400)
+            results["checks"] += 1
+            if "open" not in (overlay.get_attribute("class") or ""):
+                results["errors"].append("[modal] did not open ~3s after landing")
+            else:
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(400)
+                if "open" in (overlay.get_attribute("class") or ""):
+                    results["errors"].append("[modal] ESC did not close it")
+                page.reload(wait_until="domcontentloaded")
+                page.wait_for_timeout(3400)
+                if "open" in (overlay.get_attribute("class") or ""):
+                    results["warnings"].append("[modal] reopened on reload despite recent dismissal")
+        ctx.close()
+
+        ctx = browser.new_context(viewport={"width": 1440, "height": 900})
+        page = ctx.new_page()
+        record_console(page, "modal-submit")
+        page.goto(f"{BASE}/", wait_until="domcontentloaded", timeout=20000)
+        page.wait_for_timeout(3400)
+        modal_email = f"qa.browser.modal.{int(time.time())}@example.com"
+        if page.locator("#modalForm #modalEmail").count() and "open" in (page.locator("#modalOverlay").get_attribute("class") or ""):
+            page.fill("#modalForm #modalEmail", modal_email)
+            page.click("#modalForm button[type=submit]")
+            page.wait_for_timeout(1200)
+            results["checks"] += 1
+            if "open" in (page.locator("#modalOverlay").get_attribute("class") or ""):
+                results["warnings"].append("[modal] stayed open after a successful submit")
+        else:
+            results["warnings"].append("[modal] not open at submit-test time - could not exercise modal signup")
+
+        # Brand assets actually resolve (not just referenced in <head>).
+        for path in ("/static/favicon.ico", "/static/brand/favicon.svg", "/static/brand/apple-touch-icon.png", "/static/site.webmanifest"):
+            r = page.request.get(f"{BASE}{path}")
+            results["checks"] += 1
+            if r.status != 200:
+                results["errors"].append(f"[brand] {path} returned {r.status}")
         ctx.close()
 
         # Dashboard: all tabs at desktop width (requires the authenticated
@@ -227,6 +276,28 @@ def main():
             page.wait_for_timeout(1200)
             check_overflow(page, f"dashboard@{name}")
             ctx.close()
+
+        # /login and /admin as rendered pages (branding, not full auth flow -
+        # that's already covered by create_authenticated_lead()).
+        ctx = browser.new_context(viewport={"width": 1440, "height": 900})
+        page = ctx.new_page()
+        record_console(page, "login")
+        page.goto(f"{BASE}/login", wait_until="domcontentloaded", timeout=20000)
+        results["checks"] += 1
+        check_overflow(page, "login")
+        if page.locator(".navbrand").count() == 0:
+            results["warnings"].append("[login] branded navbrand mark not found")
+        if page.locator("#socialProviders").is_visible():
+            results["warnings"].append("[login] social providers visible despite Clerk not being configured")
+        ctx.close()
+
+        ctx = browser.new_context(viewport={"width": 1440, "height": 900})
+        page = ctx.new_page()
+        record_console(page, "admin")
+        page.goto(f"{BASE}/admin", wait_until="domcontentloaded", timeout=20000)
+        results["checks"] += 1
+        check_overflow(page, "admin")
+        ctx.close()
 
         browser.close()
         cleanup_lead(lead_id)
