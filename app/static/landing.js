@@ -130,8 +130,10 @@
   }
 
   // ---------- hero product preview + upcoming strip (real data, honestly labeled) ----------
-  const fmtDate = d => d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'TBA';
+  const REDUCE_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const valuationTag = v => v || 'PENDING';
+  const DIM_LABEL = { overall: 'Overall', listing: 'Listing', long_term: 'Long term' };
+  let currentIpo = null, currentLive = false, currentDim = 'overall';
 
   function evidenceRows(ipo) {
     const rows = [];
@@ -144,7 +146,27 @@
     return rows;
   }
 
+  // Small position-only settle when a number changes - never gates
+  // visibility, so it stays safe under the same rule that governs .reveal.
+  function swapNumber(el, text) {
+    if (!el) return;
+    if (REDUCE_MOTION) { el.textContent = text; return; }
+    el.style.transition = 'opacity ' + getComputedStyle(document.documentElement).getPropertyValue('--motion-medium').trim();
+    el.style.opacity = '0';
+    setTimeout(() => { el.textContent = text; el.style.opacity = '1'; }, 140);
+  }
+
+  function renderDimension() {
+    if (!currentIpo) return;
+    const ipo = currentIpo;
+    document.getElementById('pcDimLabel').textContent = DIM_LABEL[currentDim];
+    swapNumber(document.getElementById('pcBigScore'), String(ipo[currentDim]));
+    document.getElementById('pcEvidence').innerHTML = evidenceRows(ipo).map(([cls, icon, label]) =>
+      `<div class="${cls}"><span class="mk">${icon}</span> ${label}</div>`).join('');
+  }
+
   function renderPreview(ipo, live) {
+    currentIpo = ipo; currentLive = live;
     document.getElementById('pcLabel').textContent = live ? 'Live coverage' : 'Illustrative analysis';
     document.getElementById('pcCompany').textContent = ipo.company;
     document.getElementById('pcTag').textContent = live ? ipo.country : 'SAMPLE';
@@ -152,9 +174,16 @@
     document.getElementById('pcListing').textContent = ipo.listing;
     document.getElementById('pcLongTerm').textContent = ipo.long_term;
     document.getElementById('pcConfidence').textContent = ipo.confidence + '%';
-    document.getElementById('pcEvidence').innerHTML = evidenceRows(ipo).map(([cls, icon, label]) =>
-      `<div><span class="${cls}">${icon}</span> ${label}</div>`).join('');
+    document.getElementById('pcValuation').textContent = valuationTag(ipo.valuation);
+    renderDimension();
   }
+
+  document.querySelectorAll('.dimtab').forEach(tab => tab.addEventListener('click', () => {
+    document.querySelectorAll('.dimtab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
+    tab.classList.add('active'); tab.setAttribute('aria-selected', 'true');
+    currentDim = tab.dataset.dim;
+    renderDimension();
+  }));
 
   function renderStrip(list) {
     const el = document.getElementById('ipoStrip');
@@ -169,9 +198,22 @@
       </div>`).join('');
   }
 
+  function renderTicker(list) {
+    const track = document.getElementById('tickerTrack');
+    if (!track) return;
+    if (!list.length) { track.parentElement.hidden = true; return; }
+    const items = list.map(ipo => `
+      <div class="tick"><span class="cc">${ipo.country}</span><span class="co">${ipo.company}</span>
+        <span class="lb">Overall</span><span class="sc">${ipo.overall}</span>
+        <span class="lb">Confidence</span><span class="sc">${ipo.confidence}%</span></div>`).join('');
+    // Duplicated once so the CSS keyframe (-50%) loops seamlessly.
+    track.innerHTML = items + items;
+  }
+
   fetch('/api/public/highlights').then(r => r.json()).then(data => {
     const list = data.ipos || [];
     renderStrip(list);
+    renderTicker(list);
     if (list.length) {
       const best = list.slice().sort((a, b) => (b.confidence || 0) - (a.confidence || 0))[0];
       renderPreview(best, true);
@@ -180,6 +222,8 @@
     }
   }).catch(() => {
     document.getElementById('ipoStrip').innerHTML = '<div class="stripempty">Coverage temporarily unavailable.</div>';
+    const overlay = document.getElementById('tickerTrack');
+    if (overlay) overlay.parentElement.hidden = true;
     renderPreview({ company: 'Example Manufacturing Ltd.', country: 'India', overall: 82, listing: 76, long_term: 88, confidence: 91, valuation: 'FAIR' }, false);
   });
 

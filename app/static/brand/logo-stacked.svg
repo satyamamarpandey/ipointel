@@ -1,9 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 84" fill="none" role="img" aria-label="IPO Intelligence">
   <g transform="translate(44,4)">
-    <rect x="5" y="17" width="5" height="9" rx="1.5" fill="#3a5568"/>
-    <rect x="13" y="11" width="5" height="15" rx="1.5" fill="#7ea8ff"/>
-    <rect x="21" y="5" width="5" height="21" rx="1.5" fill="#72e6c2"/>
-    <circle cx="23.5" cy="5" r="3.4" fill="none" stroke="#72e6c2" stroke-width="1.8"/>
+    <path d="M11 6H7.6C7.05 6 6.6 6.45 6.6 7V25C6.6 25.55 7.05 26 7.6 26H11" stroke="#7ea8ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M21 6H24.4C24.95 6 25.4 6.45 25.4 7V25C25.4 25.55 24.95 26 24.4 26H21" stroke="#7ea8ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="14" y="12" width="4" height="8" rx="1.4" fill="#72e6c2"/>
   </g>
   <text x="60" y="56" text-anchor="middle" font-family="Inter,ui-sans-serif,system-ui,sans-serif" font-size="14" font-weight="800" letter-spacing="-0.4" fill="#eef4f8">IPO<tspan fill="#72e6c2">Intelligence</tspan></text>
   <text x="60" y="72" text-anchor="middle" font-family="Inter,ui-sans-serif,system-ui,sans-serif" font-size="9" font-weight="700" letter-spacing="1.5" fill="#90a3b4">TERMINAL</text>
