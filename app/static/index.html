@@ -1,1 +1,314 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Evidence-first IPO intelligence for India and the United States."><title>IPO Intelligence — Early Access</title><link rel="stylesheet" href="/static/styles.css"></head><body><div class="container"><nav class="nav"><div class="brand">IPO<span>Intelligence</span></div><div class="navlinks"><a href="#why">Why it is different</a><a class="btn ghost" href="/app">Open live dashboard</a></div></nav><main class="hero"><section><div class="eyebrow">Evidence-first IPO research</div><h1>Know the IPO.<br>Not the hype.</h1><p>A live India + U.S. IPO terminal that separates <strong>listing-gain probability</strong> from <strong>long-term quality</strong>, checks valuation and fundamentals, and shows exactly how reliable every conclusion is.</p><div class="proof"><div><b>2 markets</b><span>India + United States</span></div><div><b>3 decisions</b><span>Listing · Long term · Valuation</span></div><div><b>1 rule</b><span>No evidence, no recommendation</span></div></div></section><aside class="waitcard"><h2>Get early access</h2><p>Join the private launch list and receive material score-change alerts when notifications are enabled.</p><form id="waitlist"><div class="formgrid"><div class="field full"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com"></div><div class="field"><label for="name">Name</label><input id="name" name="name" autocomplete="name" placeholder="Your name"></div><div class="field"><label for="investor_type">Investor type</label><select id="investor_type" name="investor_type"><option value="retail">Retail investor</option><option value="professional">Professional investor</option><option value="advisor">Advisor / analyst</option><option value="founder">Founder / operator</option><option value="other">Other</option></select></div><div class="field full"><label for="markets">Primary market</label><select id="markets" name="markets"><option value="both">India + U.S.</option><option value="india">India</option><option value="us">United States</option></select></div><div style="display:none"><input id="website" name="website" tabindex="-1" autocomplete="off"></div></div><button class="btn primary" style="width:100%;margin-top:10px" type="submit">Reserve early access</button><div class="tiny" style="margin-top:10px">By joining, you agree to receive product and IPO-alert updates. Unsubscribe anytime. This is research software, not personalized investment advice.</div><div id="message" class="message" aria-live="polite"></div></form></aside></main></div><section id="why" class="section"><div class="container"><h2>The reliability layer most IPO trackers skip.</h2><p class="sectionlead">Calendars, GMP and subscription are useful. They are not enough. IPO Intelligence is designed around source provenance, missing-data penalties, score history and calibrated performance tracking.</p><div class="featuregrid"><div class="card"><div class="icon">◎</div><h3>Evidence Stack</h3><p class="muted">Every material field records source, freshness and source tier. Conflicts reduce confidence instead of being silently averaged.</p></div><div class="card"><div class="icon">↗</div><h3>Two prediction horizons</h3><p class="muted">Listing-gain signals are kept separate from long-term quality, preventing demand hype from masquerading as durable fundamentals.</p></div><div class="card"><div class="icon">◇</div><h3>Valuation sanity check</h3><p class="muted">Peer-normalized valuation, fair-value range and an explicit “insufficient data” state when the inputs are not defensible.</p></div><div class="card"><div class="icon">≋</div><h3>Score time machine</h3><p class="muted">Every material score change is snapshotted, so users can see whether the thesis improved because of data, pricing or demand.</p></div><div class="card"><div class="icon">!</div><h3>What changes the verdict</h3><p class="muted">The terminal tells you which missing or changing variable could flip the recommendation, instead of presenting false certainty.</p></div><div class="card"><div class="icon">✓</div><h3>Measured track record</h3><p class="muted">Past IPO outcomes feed a backtest panel with calibration status and listing-return statistics rather than cherry-picked winners.</p></div></div></div></section><footer class="footer"><div class="container">IPO Intelligence Terminal · Research and decision support only · No guaranteed outcomes · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div></footer><script src="/static/landing.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IPO Intelligence Terminal — Know the IPO before the market prices it</title>
+<meta name="description" content="Evidence-first IPO intelligence for India and the United States. Filings, valuation, institutional demand and historical evidence — with separate listing-gain and long-term signals.">
+<link rel="canonical" href="/">
+<meta name="theme-color" content="#071018">
+<link rel="manifest" href="/static/site.webmanifest">
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<link rel="icon" type="image/svg+xml" href="/static/brand/favicon.svg">
+<link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="IPO Intelligence Terminal">
+<meta property="og:description" content="Know the IPO before the market prices it. Evidence-first IPO research for India and the United States.">
+<meta property="og:image" content="/static/brand/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="IPO Intelligence Terminal">
+<meta name="twitter:description" content="Know the IPO before the market prices it.">
+<meta name="twitter:image" content="/static/brand/og-image.png">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<nav class="sitenav">
+  <div class="container">
+    <a class="navbrand" href="/">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><rect x="5" y="17" width="5" height="9" rx="1.5" fill="#3a5568"/><rect x="13" y="11" width="5" height="15" rx="1.5" fill="#7ea8ff"/><rect x="21" y="5" width="5" height="21" rx="1.5" fill="#72e6c2"/><circle cx="23.5" cy="5" r="3.4" fill="none" stroke="#72e6c2" stroke-width="1.8"/></svg>
+      <b>IPO<span>Intelligence</span></b>
+    </a>
+    <div class="navlinks">
+      <a class="navlink" href="#product">Product</a>
+      <a class="navlink" href="#why">Why it's different</a>
+      <a class="navlink" href="#truth-engine">Methodology</a>
+      <a class="navlink" href="#track-record">Track Record</a>
+    </div>
+    <div class="navactions">
+      <a class="btn ghost" id="navAuthLink" href="/login">Sign in</a>
+      <a class="btn primary" id="navCta" href="#early-access">Join early access</a>
+    </div>
+    <button class="navburger" id="navBurger" aria-label="Open menu" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 18 18"><path d="M2 4h14M2 9h14M2 14h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+  </div>
+</nav>
+<!-- Deliberately a sibling of <nav>, not a child: .sitenav is position:sticky,
+     which would otherwise become this fixed-position menu's containing block
+     and collapse it to the nav bar's own height instead of the viewport. -->
+<div class="mobilenav" id="mobileNav">
+  <a href="#product">Product</a>
+  <a href="#why">Why it's different</a>
+  <a href="#truth-engine">Methodology</a>
+  <a href="#track-record">Track Record</a>
+  <a href="/login">Sign in</a>
+  <a class="btn primary" href="#early-access">Join early access</a>
+</div>
+
+<main id="main">
+  <!-- ============ HERO ============ -->
+  <section class="hero-wrap">
+    <div class="container hero-grid">
+      <div class="hero-copy">
+        <div class="eyebrow">Evidence-first IPO intelligence</div>
+        <h1 class="display">Know the IPO<br>before the market prices it.</h1>
+        <p class="lead">Analyze upcoming India and U.S. IPOs through filings, fundamentals, valuation, institutional demand and historical evidence — with separate <strong>listing-gain</strong> and <strong>long-term investment</strong> signals. <strong>No evidence, no recommendation.</strong></p>
+        <div class="herobtns">
+          <a class="btn primary lg" href="#early-access" data-track="early_access_started">Join early access</a>
+          <a class="btn ghost lg" href="#truth-engine">Explore the methodology</a>
+        </div>
+        <div class="proof">
+          <div><b>2 markets</b><span>India + United States</span></div>
+          <div><b>3 decisions</b><span>Invest · Listing · Long term</span></div>
+          <div><b>1 rule</b><span>No evidence, no recommendation</span></div>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <div class="previewcard" id="previewCard" aria-live="polite">
+          <div class="pchead">
+            <div>
+              <div class="pctitle" id="pcLabel">Loading live coverage…</div>
+              <div class="pccompany" id="pcCompany">—</div>
+            </div>
+            <div class="pctag" id="pcTag">—</div>
+          </div>
+          <div class="pcgrid">
+            <div class="pcmetric"><b id="pcOverall">–</b><span>Overall</span></div>
+            <div class="pcmetric"><b id="pcListing">–</b><span>Listing</span></div>
+            <div class="pcmetric"><b id="pcLongTerm">–</b><span>Long term</span></div>
+            <div class="pcmetric"><b id="pcConfidence">–</b><span>Confidence</span></div>
+          </div>
+          <div class="pcevidence" id="pcEvidence"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ UPCOMING STRIP ============ -->
+  <section class="stripsection" id="product">
+    <div class="container">
+      <div class="striphead">
+        <h2 class="section-head" style="margin:0">Upcoming now</h2>
+        <span class="livepill"><i></i>LIVE FROM THE TERMINAL</span>
+      </div>
+      <div class="strip" id="ipoStrip">
+        <div class="stripempty">Loading current coverage…</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ THREE DECISIONS ============ -->
+  <section class="decisions reveal">
+    <div class="container">
+      <h2 class="section-head">One IPO. Three answers.</h2>
+      <p class="sectionlead">Most trackers stop at "is it open." We separate the three questions an investor actually has to answer.</p>
+      <div class="decisionflow">
+        <div class="decisioncard"><div class="num">01</div><h3>Invest?</h3><p>Fundamental quality, valuation and risk — before demand or hype enter the picture.</p></div>
+        <div class="arrow">→</div>
+        <div class="decisioncard"><div class="num">02</div><h3>Listing gains?</h3><p>Demand, pricing and float versus current market conditions — a separate, shorter-horizon signal.</p></div>
+        <div class="arrow">→</div>
+        <div class="decisioncard"><div class="num">03</div><h3>Long term?</h3><p>Business quality, cash flow, governance and whether the price already assumes too much.</p></div>
+      </div>
+      <div class="onerule">One rule: <b>No evidence, no recommendation.</b></div>
+    </div>
+  </section>
+
+  <!-- ============ USP COMPARISON ============ -->
+  <section class="usp reveal" id="why">
+    <div class="container">
+      <div class="usptitle">
+        <h2 class="section-head"><span class="no">Most IPO trackers tell you what is happening.</span><br>IPO Intelligence explains whether it matters.</h2>
+        <p class="sectionlead">Calendars, GMP and subscription numbers are useful — and commoditized. The reliability layer underneath them is what most trackers skip.</p>
+      </div>
+      <div class="uspgrid">
+        <div class="uspcol">
+          <h4>Typical IPO information</h4>
+          <ul>
+            <li>Calendar</li><li>GMP</li><li>Subscription</li><li>Allotment status</li>
+          </ul>
+        </div>
+        <div class="uspcol highlight">
+          <h4>IPO Intelligence adds</h4>
+          <ul>
+            <li>Filing-derived fundamentals</li><li>Relative valuation</li><li>Scenario &amp; reverse DCF</li>
+            <li>Governance signals</li><li>Deterministic red flags</li><li>Contradiction detection</li>
+            <li>Separate listing / long-term models</li><li>Source provenance</li><li>Confidence gating</li>
+            <li>Immutable forward predictions</li><li>Historical model accountability</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TRUTH ENGINE ============ -->
+  <section class="evidencepanel reveal" id="truth-engine">
+    <div class="container">
+      <h2 class="section-head">Every conclusion has evidence.</h2>
+      <p class="sectionlead">Every material metric traces back to its source, page, freshness and confidence tier. Conflicts reduce confidence instead of being silently averaged. <span class="tiny">(Illustrative example)</span></p>
+      <div class="evidencecard">
+        <div>
+          <div class="evidencemetric"><span>Sample metric</span>Revenue CAGR: 31.4%</div>
+        </div>
+        <div class="evidencetrail">
+          <div><b>RHP</b><span>Source</span></div>
+          <div><b>Page 247</b><span>Location</span></div>
+          <div><b>Aug 2026</b><span>Observed</span></div>
+          <div><b>Official</b><span>Tier</span></div>
+          <div class="live"><b>LIVE</b><span>Freshness</span></div>
+          <div><b>High</b><span>Confidence</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ REVERSE DCF ============ -->
+  <section class="reversedcf reveal">
+    <div class="container">
+      <h2 class="section-head">What must go right?</h2>
+      <p class="sectionlead">Instead of asking what a company might be worth, we ask what performance the IPO price already assumes. <span class="tiny">(Illustrative example)</span></p>
+      <div class="dcfcard">
+        <div class="dcfrow">
+          <div class="dcfassumes">IPO price implies <b>28% revenue CAGR</b> for <b>5 years</b> and <b>18% operating margin</b>.</div>
+        </div>
+        <div class="dcfcompare">
+          <div class="dcfstat"><span>Historical company CAGR</span><b>22%</b></div>
+          <div class="dcfstat"><span>Peer median CAGR</span><b>17%</b></div>
+          <div class="dcfstat gap"><span>Expectations gap</span><b>HIGH</b></div>
+        </div>
+        <div class="dcfexplain">The price isn't wrong or right on its own — it's a claim about the future. Reverse DCF makes that claim explicit and checkable.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ RED FLAGS ============ -->
+  <section class="redflagsection reveal">
+    <div class="container">
+      <h2 class="section-head">What the prospectus might not make obvious at first glance.</h2>
+      <p class="sectionlead">Deterministic checks, not sentiment. <span class="tiny">(Illustrative example)</span></p>
+      <div class="flaglist">
+        <div class="flagrow"><span class="flagtag high">HIGH</span>Cash conversion deteriorating over the last two fiscal years</div>
+        <div class="flagrow"><span class="flagtag watch">WATCH</span>63% revenue concentration in top customers</div>
+        <div class="flagrow"><span class="flagtag watch">WATCH</span>Large offer-for-sale component relative to fresh issue</div>
+        <div class="flagrow"><span class="flagtag info">INFO</span>Promoter ownership remains high post-issue</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ WHAT CHANGED ============ -->
+  <section class="changesection reveal">
+    <div class="container">
+      <h2 class="section-head">The score is not static.</h2>
+      <p class="sectionlead">Every meaningful change is timestamped and attributed. <span class="tiny">(Illustrative example)</span></p>
+      <div class="changecard">
+        <div class="scorejump">71 <span class="arrow">→</span> 79</div>
+        <div class="deltalist">
+          <span class="delta pos">+4 institutional demand</span>
+          <span class="delta pos">+3 market regime</span>
+          <span class="delta pos">+2 improved pricing</span>
+          <span class="delta neg">−1 valuation expansion</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ FORWARD ACCOUNTABILITY ============ -->
+  <section class="forwardsection reveal">
+    <div class="container">
+      <h2 class="section-head">Predictions that cannot be rewritten later.</h2>
+      <p class="sectionlead">Before listing, the system permanently records a snapshot. After listing, the outcome is attached separately — never merged back into the original.</p>
+      <div class="forwardgrid">
+        <div class="forwardcol">
+          <h4>Recorded before listing</h4>
+          <ul><li>Timestamp</li><li>Model version</li><li>Score</li><li>Probability</li><li>Recommendation</li><li>Source snapshot</li></ul>
+        </div>
+        <div class="forwardcol">
+          <h4>Attached after listing</h4>
+          <ul><li>Actual listing return</li><li>1 / 6 / 12-month return</li><li>Outcome vs. prediction</li></ul>
+        </div>
+      </div>
+      <div class="forwardquote">The prediction stays frozen. The result gets added later.</div>
+    </div>
+  </section>
+
+  <!-- ============ TRACK RECORD PREVIEW ============ -->
+  <section class="trackpreview reveal" id="track-record">
+    <div class="container">
+      <h2 class="section-head">Historical performance, honestly reported.</h2>
+      <p class="sectionlead">Past IPO return distributions are shown as-is — no cherry-picking, no inflated accuracy claims while the model's discriminative power is still being built.</p>
+      <div class="trackbadge">Track record building — forward predictions are now being recorded immutably.</div>
+    </div>
+  </section>
+
+  <!-- ============ FINAL CTA ============ -->
+  <section class="finalcta reveal" id="early-access">
+    <div class="container container-narrow">
+      <h2 class="section-head">Get early access.</h2>
+      <p class="sectionlead">Join the private launch list for India + U.S. IPO intelligence, score-change alerts and launch updates.</p>
+      <div class="waitcard" style="text-align:left;max-width:560px;margin:0 auto">
+        <form id="waitlistForm">
+          <div class="formgrid">
+            <div class="field full"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com"></div>
+            <div class="field"><label for="name">Name</label><input id="name" name="name" autocomplete="name" placeholder="Your name"></div>
+            <div class="field"><label for="investor_type">Investor type</label>
+              <select id="investor_type" name="investor_type">
+                <option value="retail">Retail investor</option>
+                <option value="professional">Professional investor</option>
+                <option value="advisor">Advisor / analyst</option>
+                <option value="founder">Founder / operator</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="field full"><label for="markets">Primary market</label>
+              <select id="markets" name="markets"><option value="both">India + U.S.</option><option value="india">India</option><option value="us">United States</option></select>
+            </div>
+            <div class="honeypot"><label for="website">Website</label><input id="website" name="website" tabindex="-1" autocomplete="off"></div>
+          </div>
+          <button class="btn primary block" style="margin-top:6px" type="submit">Join early access</button>
+          <div class="tiny" style="margin-top:10px">By joining, you agree to receive product and IPO-alert updates. Unsubscribe anytime. Research and decision support only — not investment advice.</div>
+          <div id="message" class="message" role="status" aria-live="polite"></div>
+        </form>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="disclaimer">Research and decision-support only. Not investment advice. No guaranteed outcomes.</div>
+<footer class="footer">
+  <div class="container">
+    <div>IPO Intelligence Terminal · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div>
+    <div class="tiny">© 2026 IPO Intelligence</div>
+  </div>
+</footer>
+
+<!-- ============ EARLY-ACCESS MODAL ============ -->
+<div class="modal-overlay" id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+  <div class="modal-card">
+    <button class="modal-close" id="modalClose" aria-label="Close">✕</button>
+    <h2 id="modalTitle">Get the next IPO before the market narrative does.</h2>
+    <p>Join early access for India + U.S. IPO intelligence, score changes and launch updates.</p>
+    <form id="modalForm">
+      <div class="field full"><label for="modalEmail">Email</label><input id="modalEmail" name="email" type="email" required placeholder="you@example.com"></div>
+      <div class="modalprefs" role="group" aria-label="Market preference">
+        <button type="button" data-val="both" class="active">India + U.S.</button>
+        <button type="button" data-val="india">India</button>
+        <button type="button" data-val="us">U.S.</button>
+      </div>
+      <button class="btn primary block" type="submit">Join early access</button>
+      <div id="modalMessage" class="message" role="status" aria-live="polite"></div>
+    </form>
+  </div>
+</div>
+
+<script src="/static/landing.js"></script>
+</body>
+</html>

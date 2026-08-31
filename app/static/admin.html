@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin — IPO Intelligence</title><link rel="stylesheet" href="/static/styles.css"></head><body><header class="appnav"><div class="container"><nav class="nav" style="padding-bottom:10px"><a class="brand" href="/" style="text-decoration:none">IPO<span>Intelligence</span></a><span class="pill">Admin</span></nav></div></header>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin — IPO Intelligence</title><link rel="manifest" href="/static/site.webmanifest"><link rel="icon" href="/static/favicon.ico" sizes="any"><link rel="icon" type="image/svg+xml" href="/static/brand/favicon.svg"><link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png"><link rel="stylesheet" href="/static/styles.css"></head><body><header class="appnav"><div class="container"><nav class="nav" style="display:flex;align-items:center;justify-content:space-between;padding:16px 0 10px;gap:12px"><a class="navbrand" href="/"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true" width="26" height="26"><rect x="5" y="17" width="5" height="9" rx="1.5" fill="#3a5568"/><rect x="13" y="11" width="5" height="15" rx="1.5" fill="#7ea8ff"/><rect x="21" y="5" width="5" height="21" rx="1.5" fill="#72e6c2"/><circle cx="23.5" cy="5" r="3.4" fill="none" stroke="#72e6c2" stroke-width="1.8"/></svg><b>IPO<span>Intelligence</span></b></a><span class="pill">Admin</span></nav></div></header>
 <main class="container appmain">
 <div id="tokenGate" class="panel"><div class="panelhead"><h3>Admin token</h3></div><div class="detail">
 <div class="field"><label for="tok">X-Admin-Token</label><input id="tok" type="password" autocomplete="off"></div>
@@ -17,6 +17,7 @@
 <div class="split">
 <div class="panel"><div class="panelhead"><h3>Users</h3><span class="pill" id="userCount">0</span></div><div class="tablewrap"><table class="table"><thead><tr><th>Email</th><th>Name</th><th>Market</th><th>Status</th><th>Signed up</th><th>Last login</th><th>Actions</th></tr></thead><tbody id="userRows"></tbody></table></div></div>
 <aside class="panel"><div class="panelhead"><h3>Source health</h3></div><div id="srcHealth" class="detail"></div>
+<div class="panelhead" style="margin-top:16px"><h3>Google Sheets waitlist sync</h3></div><div id="sheetsStatus" class="detail"></div>
 <div class="panelhead" style="margin-top:16px"><h3>Recent admin actions</h3></div><div id="auditRows" class="detail"></div>
 </aside>
 </div>
