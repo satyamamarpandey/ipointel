@@ -98,6 +98,20 @@ docker compose -f docker-compose.production.yml up -d --build
 
 Caddy obtains/renews TLS certificates and reverse-proxies to the FastAPI web service. A PostgreSQL backup helper is included at `deploy/backup_postgres.sh`.
 
+## Database migrations
+
+Schema changes go through Alembic (`alembic/`), which reads `DATABASE_URL` from the app's own settings — `alembic.ini`'s `sqlalchemy.url` is intentionally blank. `alembic upgrade head` applies pending migrations against either SQLite or PostgreSQL. `scripts/migrate_sqlite_to_postgres.py` does a one-shot data copy from an existing SQLite dev DB into an empty PostgreSQL target (refuses if the target already has rows).
+
+## Testing
+
+`pytest` runs against a disposable SQLite DB by default (`data/test.db`). To run the same suite against PostgreSQL, point `TEST_DATABASE_URL` at a database whose name contains `test` (e.g. `ipo_test`) — `tests/db_safety.py` refuses to run the destructive `drop_all`/`create_all` fixture against anything that looks like a real database (blocks the literal name `ipo` outright):
+
+```bash
+TEST_DATABASE_URL=postgresql+psycopg://user:pw@localhost:5432/ipo_test pytest -q
+```
+
+`tests/test_postgres_integration.py` covers behavior that differs across dialects or that SQLite can silently mask (FK enforcement, native boolean/JSON/timestamptz storage) — those tests skip under SQLite with an explicit reason. CI runs the suite against both a plain SQLite DB and a `postgres:17-alpine` service container, plus a real `alembic upgrade head` against that container, on every PR.
+
 ## Browser QA
 
 `tests/` is API-level only (no browser). A real-Chromium smoke suite lives outside

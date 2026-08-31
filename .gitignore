@@ -1,4 +1,6 @@
 .env
+.env.production
+.env.production.local
 .venv/
 __pycache__/
 *.pyc
@@ -19,7 +21,9 @@ node_modules/
 dist/
 build/
 *.tmp
-# local dev tools (e.g. downloaded mailpit.exe) - not project source
+# local dev tools (e.g. downloaded mailpit.exe, caddy.exe) - not project source
 bin/
+# self-managed local PostgreSQL cluster data directory (production-local stack)
+pgdata/
 # sibling FreeResend checkout for docker-compose.email.yml
 freeresend/

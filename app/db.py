@@ -24,6 +24,7 @@ def _migrate_sqlite():
             "alert_score_change": "BOOLEAN DEFAULT 1", "alert_recommendation_change": "BOOLEAN DEFAULT 1",
             "alert_red_flag": "BOOLEAN DEFAULT 1", "alert_new_ipo": "BOOLEAN DEFAULT 0",
             "digest_weekly": "BOOLEAN DEFAULT 0", "last_digest_at": "DATETIME",
+            "access_status": "VARCHAR(20) DEFAULT 'WAITLISTED'", "last_login_at": "DATETIME",
         },
         "score_snapshots": {
             # is_forward defaults to 0 for this migration deliberately: we have no positive

@@ -1,5 +1,11 @@
 import os,tempfile
-os.environ["DATABASE_URL"]="sqlite:///./data/test.db"
+
+# Tests never inherit the live app DATABASE_URL - only TEST_DATABASE_URL (or
+# the sqlite default) ever feeds the destructive drop_all/create_all fixture
+# below. assert_safe_test_database_url() is the actual enforcement; this
+# default is just what runs when nothing else is specified.
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "sqlite:///./data/test.db")
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["STRICT_RELIABILITY"]="true"
 os.environ["MIN_RECOMMENDATION_CONFIDENCE"]="70"
 import itertools
@@ -9,11 +15,16 @@ from app.db import Base,engine,SessionLocal
 from app.main import app
 from app.models import WaitlistLead
 from app.services import auth as auth_svc
+from tests.db_safety import assert_safe_test_database_url
+
+# Fail fast at collection time, not on the first test's fixture teardown.
+assert_safe_test_database_url(str(engine.url))
 
 _ref_counter = itertools.count()
 
 @pytest.fixture(autouse=True)
 def clean_db():
+    assert_safe_test_database_url(str(engine.url))
     Base.metadata.drop_all(bind=engine);Base.metadata.create_all(bind=engine)
     from app.main import rate as _rate,auth_rate as _auth_rate
     _rate.clear();_auth_rate.clear()  # TestClient reuses one fake IP across every test in the run
