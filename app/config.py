@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     secondary_enrichment_token: str = ""
     strict_reliability: bool = True
     min_recommendation_confidence: float = 70.0
+    clerk_publishable_key: str = ""
+    clerk_secret_key: str = ""
+    clerk_webhook_secret: str = ""
+    google_sheets_enabled: bool = False
+    google_sheets_spreadsheet_id: str = ""
+    google_sheets_service_account_json: str = ""  # raw JSON string (server-side env only, never committed, never sent to frontend)
 
 @lru_cache
 def get_settings() -> Settings:

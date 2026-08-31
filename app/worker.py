@@ -6,6 +6,7 @@ from .services.alerts import send_pending
 from .services.email_queue import process_queue
 from .services.newsletter import queue_weekly_digests
 from .services.outcomes import sync_prediction_outcomes
+from .services import sheets_sync
 from .services import heartbeat as hb
 
 logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s")
@@ -38,6 +39,10 @@ def process_email_once():
         hb.beat(db,current_job="idle",last_email_pass_at=True)
         return r
 
+def process_sheets_once():
+    with SessionLocal() as db:
+        return sheets_sync.process_outbox(db,get_settings())
+
 def main():
     s=get_settings();validate_production_settings(s);init_db();cycle=0
     while True:
@@ -52,5 +57,9 @@ def main():
                 r=process_email_once()
                 if r["sent"] or r["failed"]:logging.info("email queue: %s",r)
             except Exception:logging.exception("email queue processing failed")
+            try:
+                r=process_sheets_once()
+                if r["synced"] or r["failed"]:logging.info("sheets sync: %s",r)
+            except Exception:logging.exception("sheets sync processing failed")
 
 if __name__=="__main__":main()

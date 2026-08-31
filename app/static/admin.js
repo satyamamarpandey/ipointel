@@ -34,12 +34,23 @@ async function loadOps(){
     +`<div style="padding:6px 0;"><b>Worker</b> — ${esc(ops.worker.status)}, current job: ${esc(ops.worker.current_job)}</div>`;
 }
 
+async function loadSheets(){
+  const s=await call('/api/admin/sheets-status');
+  const state=s.configured?'CONFIGURED — LIVE SYNC':'PENDING CONFIGURATION';
+  $('#sheetsStatus').innerHTML=`<div style="padding:6px 0;"><b>${esc(state)}</b></div>
+    <div style="padding:6px 0;">Total ${s.total} · Synced ${s.synced} · Pending ${s.pending} · Failed ${s.failed}</div>
+    <div style="padding:6px 0;" class="muted">Last successful sync: ${s.last_synced_at?new Date(s.last_synced_at).toLocaleString():'never'}</div>
+    ${s.failed?'<button class="btn ghost" id="sheetsRetryBtn" type="button">Retry failed rows</button>':''}`;
+  const btn=document.getElementById('sheetsRetryBtn');
+  if(btn)btn.addEventListener('click',async()=>{btn.disabled=true;try{await call('/api/admin/sheets-retry',{method:'POST'});await loadSheets()}catch(e){alert(e.message||'Retry failed')}});
+}
+
 async function loadAudit(){
   const rows=await call('/api/admin/audit-log?limit=20');
   $('#auditRows').innerHTML=rows.length?rows.map(r=>`<div style="padding:6px 0;border-bottom:1px solid #eef1f3;font-size:12px;">${new Date(r.created_at).toLocaleString()} — <b>${esc(r.action)}</b> ${esc(r.target)}</div>`).join(''):'<p class="muted">No admin actions yet.</p>';
 }
 
-async function refreshAll(){await Promise.all([loadUsers(),loadOps(),loadAudit()])}
+async function refreshAll(){await Promise.all([loadUsers(),loadOps(),loadSheets(),loadAudit()])}
 
 document.getElementById('userRows').addEventListener('click',async e=>{
   const btn=e.target.closest('button[data-act]');if(!btn)return;

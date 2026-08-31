@@ -36,6 +36,27 @@ class WaitlistLead(Base):
     last_digest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     access_status: Mapped[str] = mapped_column(String(20), default="WAITLISTED", index=True)  # WAITLISTED|INVITED|ACTIVE|DISABLED
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    clerk_user_id: Mapped[str] = mapped_column(String(80), default="", index=True)
+    identity_provider: Mapped[str] = mapped_column(String(20), default="")  # ""=local magic-link | google | apple | email (via Clerk)
+    campaign: Mapped[str] = mapped_column(String(80), default="")
+    page_path: Mapped[str] = mapped_column(String(160), default="")
+
+class SheetsSyncOutbox(Base):
+    """Outbox row mirroring one WaitlistLead into Google Sheets. PostgreSQL/
+    SQLite stays the source of truth for the waitlist; this table only tracks
+    delivery of that fact to a convenience spreadsheet. One row per lead
+    (unique lead_id) makes retries idempotent - we update the same row rather
+    than enqueue duplicates."""
+    __tablename__ = "sheets_sync_outbox"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("waitlist_leads.id"), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="PENDING", index=True)  # PENDING|SYNCED|FAILED|DISABLED
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    sheet_row_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 class LoginToken(Base):
     """A single-use magic-link token. Only the SHA-256 hash is stored - the
