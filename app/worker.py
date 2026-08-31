@@ -1,6 +1,6 @@
 import logging,time
 from .db import init_db,SessionLocal
-from .config import get_settings
+from .config import get_settings,validate_production_settings
 from .services.pipeline import refresh_all,refresh_market_performance,ingest_nse_history
 from .services.alerts import send_pending
 from .services.email_queue import process_queue
@@ -39,7 +39,7 @@ def process_email_once():
         return r
 
 def main():
-    init_db();s=get_settings();cycle=0
+    s=get_settings();validate_production_settings(s);init_db();cycle=0
     while True:
         try:
             run_once(cycle);logging.info("refresh cycle %s complete",cycle)

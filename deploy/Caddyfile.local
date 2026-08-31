@@ -1,0 +1,15 @@
+# Local production verification only - fronts the natively-running uvicorn
+# web service on one primary URL (http://localhost:8080) the way a real
+# reverse proxy would, so what you browse-test locally matches the deployed
+# shape. Plain HTTP on purpose: a locally-trusted cert is not the same thing
+# as a publicly trusted one, and pretending otherwise here would be
+# misleading. Security headers (CSP/HSTS/X-Frame-Options/etc) are already
+# set by the app itself (app/main.py's security_headers middleware, with
+# HSTS correctly gated on request.url.scheme=="https") - not duplicated
+# here. See deploy/Caddyfile for the public/Docker production config (real
+# HTTPS via DOMAIN - a genuinely different tier, not a duplicate).
+http://localhost:8080 {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8010
+	header -Server
+}

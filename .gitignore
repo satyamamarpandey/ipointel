@@ -25,5 +25,7 @@ build/
 bin/
 # self-managed local PostgreSQL cluster data directory (production-local stack)
 pgdata/
+# pg_dump output - real data, never committed
+backups/
 # sibling FreeResend checkout for docker-compose.email.yml
 freeresend/

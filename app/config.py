@@ -37,3 +37,31 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+class ProductionConfigError(RuntimeError):
+    """Raised at startup when APP_ENV=production but a required production
+    setting is missing or still holds a dev-only default. This must fail
+    fast - the alternative (silently running production traffic against
+    SQLite, or with the default admin token) is worse than refusing to
+    start."""
+
+_PRODUCTION_ENV_VALUES = {"production", "prod"}
+
+def validate_production_settings(s: Settings) -> None:
+    if s.app_env not in _PRODUCTION_ENV_VALUES:
+        return
+    errors = []
+    if s.database_url.startswith("sqlite"):
+        errors.append(
+            "DATABASE_URL is a sqlite:// URL. Production must use PostgreSQL - "
+            "see scripts/migrate_sqlite_to_postgres.py for the one-shot data migration."
+        )
+    if not s.public_base_url:
+        errors.append("PUBLIC_BASE_URL is unset - set it (http://localhost is valid for local-production verification).")
+    if not s.admin_token or s.admin_token == "change-me-in-production":
+        errors.append("ADMIN_TOKEN is unset or still the placeholder default - set a real secret.")
+    if errors:
+        raise ProductionConfigError(
+            "Refusing to start with APP_ENV=" + s.app_env + " - fix the following and restart:\n- "
+            + "\n- ".join(errors)
+        )
