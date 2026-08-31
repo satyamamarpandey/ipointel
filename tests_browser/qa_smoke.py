@@ -3,13 +3,101 @@ running server + downloaded Chromium) - run explicitly:
   .venv/Scripts/python.exe tests_browser/qa_smoke.py [base_url]
 Checks every major view at 4 viewport widths for console errors, failed API
 requests, and horizontal overflow, exercises waitlist signup (success, invalid,
-duplicate), and opens an IPO detail + its lazy-loaded panes."""
-import sys, time
+duplicate), and opens an IPO detail + its lazy-loaded panes.
+
+/app is beta-gated (see app/services/auth.py) - this script creates its own
+disposable waitlist lead, invites it via the admin API, redeems the invite
+link from Mailpit, and reuses that session cookie for every authenticated
+context it opens. Requires ADMIN_TOKEN (env var, falls back to .env.production's
+value) and a reachable Mailpit at MAILPIT_URL.
+
+The script only has HTTP access (no DB), so cleanup_lead() can only disable
+the test lead via the admin API, not delete it - each run leaves one
+DISABLED test lead (qa.browser.auth.<timestamp>@example.com) and one
+WAITLISTED one (qa.browser.<timestamp>@example.com, from the plain landing-
+page signup check) in the database. Prune periodically with:
+    DELETE FROM email_messages WHERE lead_id IN (SELECT id FROM waitlist_leads WHERE email LIKE 'qa.browser%@example.com');
+    DELETE FROM waitlist_leads WHERE email LIKE 'qa.browser%@example.com';
+"""
+import os, re, sys, time, json, urllib.request, urllib.error
 from playwright.sync_api import sync_playwright
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8010"
+MAILPIT_URL = os.environ.get("MAILPIT_URL", "http://127.0.0.1:8025")
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 VIEWPORTS = [("desktop-1440", 1440, 900), ("tablet-1024", 1024, 900), ("tablet-768", 768, 1024), ("mobile-390", 390, 844)]
 TABS = ["radar", "calendar", "compare", "history", "reliability", "trackrecord", "modelperf"]
+
+
+def _http(method, url, headers=None, body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return json.loads(resp.read().decode())
+
+
+def create_authenticated_lead():
+    """Signs up + admin-invites + redeems a disposable test lead. Returns
+    (lead_id, session_cookie_value) or (None, None) with a warning recorded
+    if ADMIN_TOKEN/Mailpit aren't available - callers must handle that."""
+    if not ADMIN_TOKEN:
+        results["warnings"].append("[auth] ADMIN_TOKEN not set - skipping authenticated-page checks")
+        return None, None
+    email = f"qa.browser.auth.{int(time.time())}@example.com"
+    _http("POST", f"{BASE}/api/waitlist", {"Content-Type": "application/json"},
+          {"email": email, "name": "QA Auth", "consent": True})
+    users = _http("GET", f"{BASE}/api/admin/users", {"X-Admin-Token": ADMIN_TOKEN})
+    lead = next((u for u in users if u["email"] == email), None)
+    if not lead:
+        results["warnings"].append("[auth] could not find just-created test lead")
+        return None, None
+    _http("POST", f"{BASE}/api/admin/users/{lead['id']}/invite", {"X-Admin-Token": ADMIN_TOKEN})
+    token = None
+    for _ in range(10):
+        msgs = _http("GET", f"{MAILPIT_URL}/api/v1/messages?limit=10")["messages"]
+        for m in msgs:
+            if m["To"][0]["Address"] == email and "sign-in" in m["Subject"].lower():
+                full = _http("GET", f"{MAILPIT_URL}/api/v1/message/{m['ID']}")
+                match = re.search(r"auth/callback\?token=([A-Za-z0-9_\-]+)", full.get("Text", "") + full.get("HTML", ""))
+                if match:
+                    token = match.group(1)
+                break
+        if token:
+            break
+        time.sleep(0.5)
+    if not token:
+        results["warnings"].append("[auth] invite email/token not found in Mailpit")
+        return lead["id"], None
+    # Default urlopen auto-follows the 307 and discards its Set-Cookie
+    # header along with the redirect - use a no-redirect opener so we see
+    # the actual /auth/callback response.
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **kw):
+            return None
+    opener = urllib.request.build_opener(_NoRedirect)
+    req = urllib.request.Request(f"{BASE}/auth/callback?token={token}")
+    try:
+        resp = opener.open(req, timeout=15)
+    except urllib.error.HTTPError as e:
+        resp = e  # HTTPError still carries .headers for 3xx "errors"
+    cookie_header = resp.headers.get_all("Set-Cookie") or []
+    session_val = None
+    for c in cookie_header:
+        m = re.match(r"ipo_session=([^;]+)", c)
+        if m:
+            session_val = m.group(1)
+    if not session_val:
+        results["warnings"].append("[auth] redeem did not set a session cookie")
+    return lead["id"], session_val
+
+
+def cleanup_lead(lead_id):
+    if not lead_id or not ADMIN_TOKEN:
+        return
+    try:
+        _http("POST", f"{BASE}/api/admin/users/{lead_id}/disable", {"X-Admin-Token": ADMIN_TOKEN})
+    except Exception:
+        pass
 
 results = {"errors": [], "warnings": [], "checks": 0}
 
@@ -32,8 +120,19 @@ def check_overflow(page, tag):
         results["warnings"].append(f"[{tag}] horizontal overflow: {overflow}px")
 
 def main():
+    from urllib.parse import urlparse
+    host = urlparse(BASE).hostname or "127.0.0.1"
+    lead_id = session_cookie = None
+
+    def authed_context(**kw):
+        ctx = browser.new_context(**kw)
+        if session_cookie:
+            ctx.add_cookies([{"name": "ipo_session", "value": session_cookie, "domain": host, "path": "/"}])
+        return ctx
+
     with sync_playwright() as p:
         browser = p.chromium.launch()
+        lead_id, session_cookie = create_authenticated_lead()
         for name, w, h in VIEWPORTS:
             ctx = browser.new_context(viewport={"width": w, "height": h})
             page = ctx.new_page()
@@ -81,8 +180,11 @@ def main():
             results["warnings"].append(f"[waitlist] duplicate signup did not report already-registered: {dup1!r}")
         ctx.close()
 
-        # Dashboard: all tabs at desktop width
-        ctx = browser.new_context(viewport={"width": 1440, "height": 900})
+        # Dashboard: all tabs at desktop width (requires the authenticated
+        # session - authed_context() degrades gracefully with no cookie: the
+        # app redirects to /login and the tab-click loop below just reports
+        # its existing "tab button missing" warnings, no crash).
+        ctx = authed_context(viewport={"width": 1440, "height": 900})
         page = ctx.new_page()
         record_console(page, "dashboard")
         page.goto(f"{BASE}/app", wait_until="domcontentloaded", timeout=20000)
@@ -98,8 +200,10 @@ def main():
                 results["warnings"].append(f"[dashboard] tab button missing: {tab}")
 
         # IPO detail + lazy panes
-        page.locator('.tab[data-view="radar"]').click()
-        page.wait_for_timeout(800)
+        radar_tab = page.locator('.tab[data-view="radar"]')
+        if radar_tab.count():
+            radar_tab.click()
+            page.wait_for_timeout(800)
         rows = page.locator("#ipoRows tr[data-id]")
         if rows.count():
             rows.first.click()
@@ -116,7 +220,7 @@ def main():
 
         # Responsive check of dashboard at all viewports
         for name, w, h in VIEWPORTS:
-            ctx = browser.new_context(viewport={"width": w, "height": h})
+            ctx = authed_context(viewport={"width": w, "height": h})
             page = ctx.new_page()
             record_console(page, f"dashboard@{name}")
             page.goto(f"{BASE}/app", wait_until="domcontentloaded", timeout=20000)
@@ -125,6 +229,7 @@ def main():
             ctx.close()
 
         browser.close()
+        cleanup_lead(lead_id)
 
     print(f"checks_run={results['checks']}")
     print(f"errors={len(results['errors'])}")
