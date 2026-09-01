@@ -55,5 +55,8 @@ jobs:
           cp .env.example .env # env_file: .env just needs the file to exist for `config` to parse - no real secret is read
 
           docker compose -f docker-compose.yml config -q
-          docker compose -f docker-compose.production.yml config -q
+          # docker-compose.production.yml's DOMAIN is deliberately a hard-required,
+          # no-default production safety check (${DOMAIN:?DOMAIN is required}) - not
+          # weakening that. This is a placeholder for structural validation only.
+          DOMAIN=example.com docker compose -f docker-compose.production.yml config -q
 
