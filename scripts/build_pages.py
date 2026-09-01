@@ -35,6 +35,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import app.main as M  # noqa: E402  (importing the FastAPI module gives us its plain route functions)
+from app.config import get_settings  # noqa: E402
 from app.db import SessionLocal  # noqa: E402
 from app.models import IPO  # noqa: E402
 from app.services.market import parse_date  # noqa: E402
@@ -107,17 +108,27 @@ def classify(db, now: datetime, window_years: int = 5):
     return cutoff, upcoming, history_in, history_out, unparseable
 
 
-def source_status(row: dict, now: datetime) -> str:
-    if row.get("error"):
+def source_status(row: dict, now: datetime, *, optional_unconfigured: bool = False) -> str:
+    # A non-empty `error` field does NOT by itself mean total failure -
+    # ingest_sec_priced (and others) log per-day/per-item warnings there even
+    # on an otherwise-successful "partial" run (e.g. a weekend or not-yet-
+    # published day in a lookback window is an expected miss, not a broken
+    # collector). The pipeline's own IngestionRun.status is authoritative;
+    # only trust `error` as a hard failure when status says so.
+    status = row.get("status")
+    if status in ("never run", None) or not row.get("last_run"):
+        # An optional provider with no credential configured was never even
+        # attempted - that's a deliberate, honest non-issue, not the same as
+        # a required source that failed to run. Never let it read as FAILED.
+        return "OPTIONAL_UNCONFIGURED" if optional_unconfigured else "FAILED"
+    if status == "error":
         return "FAILED"
-    if not row.get("last_run"):
-        return "FAILED"  # never run is a failure to report, not a neutral state
+    if status == "partial":
+        return "PARTIAL"
     last_run = datetime.fromisoformat(row["last_run"])
     if last_run.tzinfo is None:  # SQLite doesn't truly persist tz-awareness even with DateTime(timezone=True)
         last_run = last_run.replace(tzinfo=timezone.utc)
     age_hours = (now - last_run).total_seconds() / 3600
-    if row.get("status") == "partial":
-        return "PARTIAL"
     if age_hours <= 2:
         return "LIVE"
     if age_hours <= 24:
@@ -198,11 +209,13 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
 
     raw_source_rows = M._source_health_rows(db)
     public_sources = {"SEC EDGAR", "SEC Priced IPOs", "NSE", "NSE Primary Market Reports", "Licensed enrichment feed"}
+    enrichment_configured = bool(get_settings().secondary_enrichment_url)
     source_health = []
     for r in raw_source_rows:
         if r["source"] not in public_sources:
             continue  # never publish backend-operational rows (email/worker) on the public site
-        source_health.append({**r, "public_status": source_status(r, now)})
+        optional = r["source"] == "Licensed enrichment feed" and not enrichment_configured
+        source_health.append({**r, "public_status": source_status(r, now, optional_unconfigured=optional)})
     write_json(out_dir / "data" / "source-health.json", source_health)
 
     summary = M.summary(db=db, _lead=None)

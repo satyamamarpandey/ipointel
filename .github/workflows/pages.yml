@@ -3,9 +3,15 @@ name: Deploy IPO Intelligence to GitHub Pages
 # Single production path (deliberately not split into multiple overlapping
 # workflows - see docs/GITHUB_PAGES.md): refresh real data from SEC/NSE ->
 # build the static site from it -> deploy to Pages. A failed refresh does
-# not wipe the site - the cached SQLite DB from the last successful refresh
-# is reused (see the cache step below), and build_pages.py itself fails the
-# whole job (not a silent empty deploy) if there is no usable data at all.
+# not wipe the site - the last-known-good SQLite DB is restored from the
+# data-state branch below (actions/cache was tried first, but a fresh key
+# every ~45-minute run has no guaranteed exact-match hit and is subject to
+# GitHub's 7-day/10GB cache eviction - a plain git branch is permanent and
+# git-native, matching the "committed sanitized snapshot" approach). The DB
+# persisted there only ever contains what this workflow's own SEC/NSE
+# ingestion wrote - never any local/dev database, so no waitlist or other
+# private data ever reaches it. build_pages.py itself fails the whole job
+# (not a silent empty deploy) if there is no usable data at all.
 
 on:
   schedule:
@@ -20,7 +26,7 @@ on:
       - ".github/workflows/pages.yml"
 
 permissions:
-  contents: read
+  contents: write # needed to persist data/ipo.db to the data-state branch (see below)
   pages: write
   id-token: write
 
@@ -44,24 +50,33 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore last-known-good data cache
-        id: cache-db
-        uses: actions/cache@v4
-        with:
-          path: data/ipo.db
-          key: ipo-db-${{ github.run_id }}
-          restore-keys: |
-            ipo-db-
-
-      - name: Ensure local database exists
+      - name: Restore last-known-good dataset from data-state branch
         run: |
           mkdir -p data
-          python -c "from app.db import init_db; init_db()"
+          if git fetch --depth=1 origin data-state 2>/dev/null; then
+            git show FETCH_HEAD:data/ipo.db > data/ipo.db
+            echo "Restored last-known-good dataset from data-state branch."
+          else
+            echo "No data-state branch yet - starting fresh (expected on first run)."
+          fi
+
+      - name: Ensure local database exists
+        run: python -c "from app.db import init_db; init_db()"
+
+      - name: Determine refresh scope
+        id: scope
+        run: |
+          if [ "${{ github.event.schedule }}" = "17 6 * * *" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "full=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Refresh live data (SEC / NSE / market) - non-fatal on failure
         continue-on-error: true
         env:
           DATABASE_URL: sqlite:///./data/ipo.db
+          FULL_REFRESH: ${{ steps.scope.outputs.full }}
         run: python scripts/refresh_data.py
 
       - name: Build static site
@@ -75,12 +90,22 @@ jobs:
       - name: Five-year cutoff / upcoming-completeness / secret-scan assertions
         run: python -m pytest tests/test_pages_build.py -q
 
-      - name: Save data cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: data/ipo.db
-          key: ipo-db-${{ github.run_id }}
+      - name: Persist dataset to data-state branch (last-known-good for next run)
+        # Force-pushes a single, history-free snapshot commit each run - this
+        # branch only ever needs the latest DB, and growing an unbounded
+        # history of full SQLite blobs every ~45 minutes would make the repo
+        # balloon in size for no benefit.
+        if: success()
+        run: |
+          rm -rf /tmp/data-state && mkdir -p /tmp/data-state/data
+          cp data/ipo.db /tmp/data-state/data/ipo.db
+          cd /tmp/data-state
+          git init -q
+          git checkout -q --orphan data-state
+          git add data/ipo.db
+          git -c user.name="github-actions[bot]" -c user.email="github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "chore: persist last-known-good IPO dataset [skip ci]"
+          git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" HEAD:data-state
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

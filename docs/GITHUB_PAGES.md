@@ -138,11 +138,22 @@ anywhere under `dist/`.
   reads this file.
 
 A failed refresh (e.g. SEC or NSE briefly unreachable) does not wipe the
-site: the workflow caches `data/ipo.db` between runs
-(`actions/cache`) precisely so a build can fall back to the last
-successful data whenever a source refresh fails - see
-`scripts/refresh_data.py`'s `continue-on-error: true` step in
+site: the workflow persists `data/ipo.db` to a dedicated `data-state` branch
+after every successful run (a single force-pushed snapshot commit, not a
+growing history) and restores from it at the start of the next run - a
+plain git branch, not `actions/cache`, since a fresh cache key every
+~45-minute run has no guaranteed hit and is subject to GitHub's 7-day/10GB
+cache eviction. That branch only ever contains what this workflow's own
+SEC/NSE ingestion wrote (never a local/dev database), so it carries no
+waitlist or other private data. See `scripts/refresh_data.py`'s
+`continue-on-error: true` step and the restore/persist steps in
 `.github/workflows/pages.yml`.
+
+`ingest_nse_history()` (NSE Primary Market Reports) is deliberately not part
+of the ~45-minute refresh - like the server worker's own once-a-day cadence
+for it, `scripts/refresh_data.py` only runs it when `FULL_REFRESH=true`,
+which `pages.yml` sets on the daily 06:17 UTC cron and on manual
+`workflow_dispatch` runs.
 
 ## Manual steps this repository cannot do for itself
 
