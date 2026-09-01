@@ -24,8 +24,16 @@ def _features(ipo: IPO) -> dict:
 def _latest_perf(db: Session, ipo_id: int) -> PerformanceSnapshot | None:
     return db.scalar(select(PerformanceSnapshot).where(PerformanceSnapshot.ipo_id == ipo_id).order_by(PerformanceSnapshot.created_at.desc()).limit(1))
 
-def find_similar(db: Session, target: IPO, k: int = 8) -> dict:
-    candidates = db.scalars(select(IPO).where(IPO.country == target.country, IPO.id != target.id, IPO.status.in_(["Listed"]))).all()
+def find_similar(db: Session, target: IPO, k: int = 8, candidates: list[IPO] | None = None) -> dict:
+    """`candidates`, when supplied, must be every Listed IPO in target.country
+    (any country/status filtering is the caller's responsibility - see
+    scripts/build_pages.py, which fetches this once per country instead of
+    once per target IPO to avoid an O(n^2) rescan when generating hundreds
+    of detail artifacts in one run). Identical result either way; this is a
+    caching optimization only, never a change to the matching algorithm."""
+    if candidates is None:
+        candidates = db.scalars(select(IPO).where(IPO.country == target.country, IPO.status.in_(["Listed"]))).all()
+    candidates = [c for c in candidates if c.id != target.id]
     tf = _features(target)
     rows = []
     for c in candidates:

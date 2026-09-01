@@ -1,0 +1,90 @@
+name: Deploy IPO Intelligence to GitHub Pages
+
+# Single production path (deliberately not split into multiple overlapping
+# workflows - see docs/GITHUB_PAGES.md): refresh real data from SEC/NSE ->
+# build the static site from it -> deploy to Pages. A failed refresh does
+# not wipe the site - the cached SQLite DB from the last successful refresh
+# is reused (see the cache step below), and build_pages.py itself fails the
+# whole job (not a silent empty deploy) if there is no usable data at all.
+
+on:
+  schedule:
+    - cron: "*/45 * * * *"   # upcoming/current IPO refresh, ~every 45 minutes
+    - cron: "17 6 * * *"     # daily full pass (history + model performance), 06:17 UTC
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - "app/static/**"
+      - "scripts/build_pages.py"
+      - ".github/workflows/pages.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore last-known-good data cache
+        id: cache-db
+        uses: actions/cache@v4
+        with:
+          path: data/ipo.db
+          key: ipo-db-${{ github.run_id }}
+          restore-keys: |
+            ipo-db-
+
+      - name: Ensure local database exists
+        run: |
+          mkdir -p data
+          python -c "from app.db import init_db; init_db()"
+
+      - name: Refresh live data (SEC / NSE / market) - non-fatal on failure
+        continue-on-error: true
+        env:
+          DATABASE_URL: sqlite:///./data/ipo.db
+        run: python scripts/refresh_data.py
+
+      - name: Build static site
+        env:
+          DATABASE_URL: sqlite:///./data/ipo.db
+        run: |
+          python scripts/build_pages.py --out dist \
+            --base-url https://ipointel.brandsap.com \
+            --waitlist-endpoint "${{ secrets.PUBLIC_WAITLIST_ENDPOINT }}"
+
+      - name: Five-year cutoff / upcoming-completeness / secret-scan assertions
+        run: python -m pytest tests/test_pages_build.py -q
+
+      - name: Save data cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/ipo.db
+          key: ipo-db-${{ github.run_id }}
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4
