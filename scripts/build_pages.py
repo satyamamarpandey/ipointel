@@ -36,7 +36,7 @@ sys.path.insert(0, str(ROOT))
 
 import app.main as M  # noqa: E402  (importing the FastAPI module gives us its plain route functions)
 from app.config import get_settings  # noqa: E402
-from app.db import SessionLocal  # noqa: E402
+from app.db import SessionLocal, init_db  # noqa: E402
 from app.models import IPO  # noqa: E402
 from app.services.market import parse_date  # noqa: E402
 from app.services import similarity as similarity_svc  # noqa: E402
@@ -137,6 +137,11 @@ def source_status(row: dict, now: datetime, *, optional_unconfigured: bool = Fal
 
 
 def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
+    init_db()  # idempotent - creates any missing tables, never touches existing data.
+    # Only ever relied on a separate caller-run step for this before, which
+    # meant a fresh checkout with no pre-existing local dev DB (no CI runner
+    # has one) crashed with "no such table: ipos" - this makes the build
+    # self-sufficient regardless of what ran before it.
     db = SessionLocal()
     now = datetime.now(timezone.utc)
     audit = {}

@@ -25,6 +25,15 @@ jobs:
         with: {python-version: '3.13'}
       - run: pip install -r requirements.txt
       - run: python -m compileall -q app
+      - name: Restore public dataset for pages-build tests (data-state branch)
+        # tests/test_pages_build.py exercises scripts/build_pages.py against
+        # a real DATABASE_URL - without this, a fresh checkout has no
+        # data/ipo.db at all and those tests would run against zero IPOs.
+        run: |
+          mkdir -p data
+          if git fetch --depth=1 origin data-state 2>/dev/null; then
+            git show FETCH_HEAD:data/ipo.db > data/ipo.db
+          fi
       - name: SQLite test suite
         run: pytest -q
       - name: Alembic upgrade against Postgres (proves the real migration path, not just create_all)
