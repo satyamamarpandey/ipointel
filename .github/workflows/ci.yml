@@ -52,6 +52,8 @@ jobs:
         run: docker build -t ipo-web-ci-check .
       - name: Docker Compose config validation
         run: |
+          cp .env.example .env # env_file: .env just needs the file to exist for `config` to parse - no real secret is read
+
           docker compose -f docker-compose.yml config -q
           docker compose -f docker-compose.production.yml config -q
 
