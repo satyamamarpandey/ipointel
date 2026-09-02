@@ -54,7 +54,6 @@
   }
 
   // ---------- signup submit helper (shared by hero form + modal) ----------
-  function utm(name) { return new URLSearchParams(location.search).get(name) || ''; }
   async function submitWaitlist(fields, msgEl, btn) {
     if (!fields.firstName) { msgEl.textContent = 'First name is required.'; return false; }
     if (!fields.role) { msgEl.textContent = 'Role is required.'; return false; }
@@ -62,9 +61,8 @@
     const body = {
       email: fields.email, firstName: fields.firstName, lastName: fields.lastName || '',
       role: fields.role, currentLevel: fields.currentLevel || '',
-      markets: fields.markets || 'both', sendUpdates: !!fields.sendUpdates, website: fields.website || '',
-      source: location.hostname || 'ipointel.brandsap.com', page: location.pathname,
-      referral: utm('ref') || '',
+      sendUpdates: !!fields.sendUpdates, website: fields.website || '',
+      source: location.hostname || 'ipointel.brandsap.com',
     };
     try {
       const r = await fetch('/api/waitlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -90,7 +88,7 @@
       submitWaitlist({
         email: heroForm.email.value, firstName: heroForm.firstName.value, lastName: heroForm.lastName.value,
         role: heroForm.role.value, currentLevel: heroForm.currentLevel.value,
-        markets: heroForm.markets.value, sendUpdates: heroForm.sendUpdates.checked, website: heroForm.website.value,
+        sendUpdates: heroForm.sendUpdates.checked, website: heroForm.website.value,
       }, document.getElementById('message'), heroForm.querySelector('button'));
     });
   }
@@ -99,7 +97,7 @@
   const overlay = document.getElementById('modalOverlay');
   const modalForm = document.getElementById('modalForm');
   const modalMsg = document.getElementById('modalMessage');
-  let modalMarket = 'both', lastFocused = null;
+  let lastFocused = null;
   const DISMISS_DAYS = 4;
 
   function shouldOfferModal() {
@@ -143,16 +141,12 @@
   if (overlay) {
     overlay.addEventListener('mousedown', e => { if (e.target === overlay) closeModal(true); });
     document.getElementById('modalClose').addEventListener('click', () => closeModal(true));
-    document.querySelectorAll('.modalprefs button').forEach(b => b.addEventListener('click', () => {
-      document.querySelectorAll('.modalprefs button').forEach(x => x.classList.remove('active'));
-      b.classList.add('active'); modalMarket = b.dataset.val;
-    }));
     modalForm.addEventListener('submit', e => {
       e.preventDefault();
       submitWaitlist({
         email: modalForm.email.value, firstName: modalForm.firstName.value, lastName: modalForm.lastName.value,
         role: modalForm.role.value, currentLevel: modalForm.currentLevel.value,
-        markets: modalMarket, sendUpdates: modalForm.sendUpdates.checked,
+        sendUpdates: modalForm.sendUpdates.checked,
       }, modalMsg, modalForm.querySelector('button'));
     });
     if (shouldOfferModal()) setTimeout(openModal, 3000);

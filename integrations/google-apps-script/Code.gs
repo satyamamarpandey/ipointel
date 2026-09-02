@@ -21,13 +21,13 @@
  * version > Deploy. That keeps the same /exec URL.
  *
  * Sheet columns (row 1 header, created/repaired automatically):
- * Timestamp | Email | First Name | Last Name | Role | Current Level |
- * Market Preference | Send Updates | Source | Page | Referral | Lead ID
+ * Timestamp | Email | Source | First Name | Last Name | Role / Job Family |
+ * Current Level | Send me occasional product updates?
  */
 
 var SHEET_NAME = 'Waitlist';
-var HEADER = ['Timestamp', 'Email', 'First Name', 'Last Name', 'Role', 'Current Level',
-              'Market Preference', 'Send Updates', 'Source', 'Page', 'Referral', 'Lead ID'];
+var HEADER = ['Timestamp', 'Email', 'Source', 'First Name', 'Last Name', 'Role / Job Family',
+              'Current Level', 'Send me occasional product updates?'];
 
 function doPost(e) {
   try {
@@ -46,20 +46,16 @@ function doPost(e) {
     }
     var lastName = String(payload.lastName || '').trim().slice(0, 80);
     var currentLevel = String(payload.currentLevel || '').trim().slice(0, 80);
-    var markets = ['india', 'us', 'both'].indexOf(payload.markets) >= 0 ? payload.markets : 'both';
     var sendUpdates = payload.sendUpdates === true || payload.sendUpdates === 'true';
     var source = String(payload.source || 'ipointel.brandsap.com').trim().slice(0, 120);
-    var page = String(payload.page || '').trim().slice(0, 160);
-    var referral = String(payload.referral || '').trim().slice(0, 160);
 
     var sheet = getSheet();
     var existingRow = findRowByEmail(sheet, email);
     if (existingRow) {
       return respond({ ok: true, message: "You're already on the early-access list." });
     }
-    var leadId = Utilities.getUuid();
-    sheet.appendRow([new Date().toISOString(), email, firstName, lastName, role, currentLevel,
-                      markets, sendUpdates ? 'yes' : 'no', source, page, referral, leadId]);
+    sheet.appendRow([new Date().toISOString(), email, source, firstName, lastName, role,
+                      currentLevel, sendUpdates ? 'yes' : 'no']);
     return respond({ ok: true, message: 'Early access reserved. We will notify you about launch and material IPO-score changes.' });
   } catch (err) {
     return respond({ ok: false, error: 'Could not process signup: ' + err.message }, 500);
