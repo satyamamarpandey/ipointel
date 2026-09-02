@@ -315,7 +315,7 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
     sitemap.append("</urlset>")
     (out_dir / "sitemap.xml").write_text("\n".join(sitemap), encoding="utf-8")
 
-    not_found_html = (STATIC / "index.html").read_text(encoding="utf-8")
+    not_found_html = (STATIC / "404.html").read_text(encoding="utf-8")
     (out_dir / "404.html").write_text(not_found_html, encoding="utf-8")
 
     db.close()
