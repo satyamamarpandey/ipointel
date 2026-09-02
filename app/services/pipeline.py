@@ -109,6 +109,7 @@ def ingest_sec_priced(db:Session, lookback_days:int=5):
         today=datetime.now(timezone.utc).date()
         for i in range(lookback_days):
             day=today-timedelta(days=i)
+            if day.weekday()>=5:continue  # Sat/Sun: SEC never publishes a daily-index file - not a fetch failure, don't warn or request
             try: rows,index_url=sec.master_index_for_date(day,s.sec_user_agent)
             except Exception as e: warnings.append(f"{day}: {type(e).__name__}");continue
             for meta in rows:
