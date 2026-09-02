@@ -297,10 +297,12 @@
         <div class="waitcard">
           <form id="waitlistForm">
             <div class="formgrid">
+              <div class="field"><label for="firstName">First name</label><input id="firstName" name="firstName" autocomplete="given-name" required placeholder="First name"></div>
+              <div class="field"><label for="lastName">Last name</label><input id="lastName" name="lastName" autocomplete="family-name" placeholder="Last name (optional)"></div>
               <div class="field full"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com"></div>
-              <div class="field"><label for="name">Name</label><input id="name" name="name" autocomplete="name" placeholder="Your name"></div>
-              <div class="field"><label for="investor_type">Investor type</label>
-                <select id="investor_type" name="investor_type">
+              <div class="field"><label for="role">Role</label>
+                <select id="role" name="role" required>
+                  <option value="" disabled selected>Select role</option>
                   <option value="retail">Retail investor</option>
                   <option value="professional">Professional investor</option>
                   <option value="advisor">Advisor / analyst</option>
@@ -308,9 +310,19 @@
                   <option value="other">Other</option>
                 </select>
               </div>
+              <div class="field"><label for="currentLevel">Current level</label>
+                <select id="currentLevel" name="currentLevel">
+                  <option value="">Prefer not to say</option>
+                  <option value="new">New to IPO investing</option>
+                  <option value="some">Some experience</option>
+                  <option value="experienced">Experienced</option>
+                  <option value="professional">Professional / institutional</option>
+                </select>
+              </div>
               <div class="field full"><label for="markets">Primary market</label>
                 <select id="markets" name="markets"><option value="both">India + U.S.</option><option value="india">India</option><option value="us">United States</option></select>
               </div>
+              <div class="field full checkboxfield"><label><input id="sendUpdates" name="sendUpdates" type="checkbox" checked> Send me score-change and launch updates</label></div>
               <div class="honeypot"><label for="website">Website</label><input id="website" name="website" tabindex="-1" autocomplete="off"></div>
             </div>
             <button class="btn primary block" style="margin-top:6px" type="submit">Join early access</button>
@@ -341,12 +353,36 @@
     <div class="modal-form">
       <p>Join early access for India + U.S. IPO intelligence, score changes and launch updates.</p>
       <form id="modalForm">
-        <div class="field full"><label for="modalEmail">Email</label><input id="modalEmail" name="email" type="email" required placeholder="you@example.com"></div>
+        <div class="formgrid">
+          <div class="field"><label for="modalFirstName">First name</label><input id="modalFirstName" name="firstName" autocomplete="given-name" required placeholder="First name"></div>
+          <div class="field"><label for="modalLastName">Last name</label><input id="modalLastName" name="lastName" autocomplete="family-name" placeholder="Last name (optional)"></div>
+          <div class="field full"><label for="modalEmail">Email</label><input id="modalEmail" name="email" type="email" autocomplete="email" required placeholder="you@example.com"></div>
+          <div class="field"><label for="modalRole">Role</label>
+            <select id="modalRole" name="role" required>
+              <option value="" disabled selected>Select role</option>
+              <option value="retail">Retail investor</option>
+              <option value="professional">Professional investor</option>
+              <option value="advisor">Advisor / analyst</option>
+              <option value="founder">Founder / operator</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="field"><label for="modalCurrentLevel">Current level</label>
+            <select id="modalCurrentLevel" name="currentLevel">
+              <option value="">Prefer not to say</option>
+              <option value="new">New to IPO investing</option>
+              <option value="some">Some experience</option>
+              <option value="experienced">Experienced</option>
+              <option value="professional">Professional / institutional</option>
+            </select>
+          </div>
+        </div>
         <div class="modalprefs" role="group" aria-label="Market preference">
           <button type="button" data-val="both" class="active">India + U.S.</button>
           <button type="button" data-val="india">India</button>
           <button type="button" data-val="us">U.S.</button>
         </div>
+        <div class="field full checkboxfield"><label><input id="modalSendUpdates" name="sendUpdates" type="checkbox" checked> Send me score-change and launch updates</label></div>
         <button class="btn primary block" type="submit">Join early access</button>
         <div id="modalMessage" class="message" role="status" aria-live="polite"></div>
       </form>

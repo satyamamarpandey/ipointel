@@ -12,15 +12,22 @@
  * this environment): open script.google.com, paste this file into a new
  * project bound to (or referencing) the target Sheet, Deploy > New deployment
  * > type "Web app", execute as "Me", access "Anyone". Copy the resulting
- * /exec URL into the PUBLIC_WAITLIST_ENDPOINT repository secret used by
+ * /exec URL into the PUBLIC_WAITLIST_ENDPOINT repository variable used by
  * .github/workflows/pages.yml (see docs/GITHUB_PAGES.md).
  *
- * Sheet columns (row 1 header, created automatically if missing):
- * Timestamp | Email | Name | Markets | Source | Page | Referral
+ * To ship a field/column change without breaking the existing deployment
+ * URL: edit this file in the Apps Script project, then Deploy > Manage
+ * deployments > pencil icon on the existing deployment > Version: New
+ * version > Deploy. That keeps the same /exec URL.
+ *
+ * Sheet columns (row 1 header, created/repaired automatically):
+ * Timestamp | Email | First Name | Last Name | Role | Current Level |
+ * Market Preference | Send Updates | Source | Page | Referral | Lead ID
  */
 
 var SHEET_NAME = 'Waitlist';
-var HEADER = ['Timestamp', 'Email', 'Name', 'Markets', 'Source', 'Page', 'Referral'];
+var HEADER = ['Timestamp', 'Email', 'First Name', 'Last Name', 'Role', 'Current Level',
+              'Market Preference', 'Send Updates', 'Source', 'Page', 'Referral', 'Lead ID'];
 
 function doPost(e) {
   try {
@@ -29,17 +36,30 @@ function doPost(e) {
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return respond({ ok: false, error: 'A valid email is required.' }, 400);
     }
-    var name = String(payload.name || '').trim().slice(0, 160);
+    var firstName = String(payload.firstName || '').trim().slice(0, 80);
+    if (!firstName) {
+      return respond({ ok: false, error: 'First name is required.' }, 400);
+    }
+    var role = String(payload.role || '').trim().slice(0, 80);
+    if (!role) {
+      return respond({ ok: false, error: 'Role is required.' }, 400);
+    }
+    var lastName = String(payload.lastName || '').trim().slice(0, 80);
+    var currentLevel = String(payload.currentLevel || '').trim().slice(0, 80);
     var markets = ['india', 'us', 'both'].indexOf(payload.markets) >= 0 ? payload.markets : 'both';
-    var source = String(payload.source || 'pages').trim().slice(0, 80);
+    var sendUpdates = payload.sendUpdates === true || payload.sendUpdates === 'true';
+    var source = String(payload.source || 'ipointel.brandsap.com').trim().slice(0, 120);
     var page = String(payload.page || '').trim().slice(0, 160);
+    var referral = String(payload.referral || '').trim().slice(0, 160);
 
     var sheet = getSheet();
     var existingRow = findRowByEmail(sheet, email);
     if (existingRow) {
       return respond({ ok: true, message: "You're already on the early-access list." });
     }
-    sheet.appendRow([new Date().toISOString(), email, name, markets, source, page, '']);
+    var leadId = Utilities.getUuid();
+    sheet.appendRow([new Date().toISOString(), email, firstName, lastName, role, currentLevel,
+                      markets, sendUpdates ? 'yes' : 'no', source, page, referral, leadId]);
     return respond({ ok: true, message: 'Early access reserved. We will notify you about launch and material IPO-score changes.' });
   } catch (err) {
     return respond({ ok: false, error: 'Could not process signup: ' + err.message }, 500);
@@ -52,6 +72,12 @@ function getSheet() {
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_NAME);
     sheet.appendRow(HEADER);
+    return sheet;
+  }
+  var firstRow = sheet.getRange(1, 1, 1, HEADER.length).getValues()[0];
+  var matches = HEADER.every(function (h, i) { return firstRow[i] === h; });
+  if (!matches) {
+    sheet.getRange(1, 1, 1, HEADER.length).setValues([HEADER]);
   }
   return sheet;
 }

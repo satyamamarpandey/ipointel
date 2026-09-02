@@ -56,12 +56,15 @@
   // ---------- signup submit helper (shared by hero form + modal) ----------
   function utm(name) { return new URLSearchParams(location.search).get(name) || ''; }
   async function submitWaitlist(fields, msgEl, btn) {
+    if (!fields.firstName) { msgEl.textContent = 'First name is required.'; return false; }
+    if (!fields.role) { msgEl.textContent = 'Role is required.'; return false; }
     msgEl.textContent = 'Reserving your spot…';
     const body = {
-      email: fields.email, name: fields.name || '', investor_type: fields.investor_type || 'retail',
-      markets: fields.markets || 'both', consent: true, website: fields.website || '',
-      source: utm('utm_source') || 'direct', referred_by: utm('ref') || '',
-      campaign: utm('utm_campaign') || '', page_path: location.pathname,
+      email: fields.email, firstName: fields.firstName, lastName: fields.lastName || '',
+      role: fields.role, currentLevel: fields.currentLevel || '',
+      markets: fields.markets || 'both', sendUpdates: !!fields.sendUpdates, website: fields.website || '',
+      source: location.hostname || 'ipointel.brandsap.com', page: location.pathname,
+      referral: utm('ref') || '',
     };
     try {
       const r = await fetch('/api/waitlist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -85,8 +88,9 @@
       e.preventDefault();
       track('early_access_started');
       submitWaitlist({
-        email: heroForm.email.value, name: heroForm.name.value, investor_type: heroForm.investor_type.value,
-        markets: heroForm.markets.value, website: heroForm.website.value,
+        email: heroForm.email.value, firstName: heroForm.firstName.value, lastName: heroForm.lastName.value,
+        role: heroForm.role.value, currentLevel: heroForm.currentLevel.value,
+        markets: heroForm.markets.value, sendUpdates: heroForm.sendUpdates.checked, website: heroForm.website.value,
       }, document.getElementById('message'), heroForm.querySelector('button'));
     });
   }
@@ -145,10 +149,26 @@
     }));
     modalForm.addEventListener('submit', e => {
       e.preventDefault();
-      submitWaitlist({ email: modalForm.email.value, markets: modalMarket }, modalMsg, modalForm.querySelector('button'));
+      submitWaitlist({
+        email: modalForm.email.value, firstName: modalForm.firstName.value, lastName: modalForm.lastName.value,
+        role: modalForm.role.value, currentLevel: modalForm.currentLevel.value,
+        markets: modalMarket, sendUpdates: modalForm.sendUpdates.checked,
+      }, modalMsg, modalForm.querySelector('button'));
     });
     if (shouldOfferModal()) setTimeout(openModal, 3000);
   }
+
+  // ---------- every "Join early access" trigger opens the same modal ----------
+  // (nav, mobile nav, hero CTA) instead of scroll-anchoring to the standalone
+  // section form - one form, one field schema, one place data lands.
+  document.querySelectorAll('a[href="#early-access"]').forEach(a => {
+    a.addEventListener('click', e => {
+      if (!overlay) return; // no-js/no-modal fallback: let the anchor scroll normally
+      e.preventDefault();
+      if (mobileNav) { mobileNav.classList.remove('open'); if (burger) burger.setAttribute('aria-expanded', 'false'); }
+      openModal();
+    });
+  });
 
   // ---------- hero product preview + upcoming strip (real data, honestly labeled) ----------
   const REDUCE_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
