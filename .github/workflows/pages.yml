@@ -85,7 +85,7 @@ jobs:
         run: |
           python scripts/build_pages.py --out dist \
             --base-url https://ipointel.brandsap.com \
-            --waitlist-endpoint "${{ secrets.PUBLIC_WAITLIST_ENDPOINT }}"
+            --waitlist-endpoint "${{ vars.PUBLIC_WAITLIST_ENDPOINT }}"
 
       - name: Five-year cutoff / upcoming-completeness / secret-scan assertions
         run: python -m pytest tests/test_pages_build.py -q

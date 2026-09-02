@@ -112,13 +112,15 @@ dropped, and never defaulted to 0/today.
 
 ## Waitlist on GitHub Pages
 
-`PUBLIC_WAITLIST_ENDPOINT` (a GitHub repository secret,
-`PUBLIC_WAITLIST_ENDPOINT`) points at a deployed Google Apps Script Web App -
-see `integrations/google-apps-script/Code.gs` and its deployment steps in
+`PUBLIC_WAITLIST_ENDPOINT` (a GitHub repository **variable**, not a secret -
+the deployed `/exec` URL is meant to be publicly callable from the browser,
+so there is nothing to protect by hiding it in build logs) points at a
+deployed Google Apps Script Web App - see
+`integrations/google-apps-script/Code.gs` and its deployment steps in
 that file's header comment. No Google service-account credentials or
 private key of any kind is ever bundled into `dist/`; Apps Script Web Apps
 run under the deploying account's own server-side authorization. If the
-secret is unset, `pages-adapter.js` returns an honest "not configured yet"
+variable is unset, `pages-adapter.js` returns an honest "not configured yet"
 error instead of a fake success message - see
 `test_pages_build.py::test_no_secrets_in_dist` and the build's own
 `secret_scan()` step, which fails the build outright if any of
@@ -170,9 +172,11 @@ which `pages.yml` sets on the daily 06:17 UTC cron and on manual
    certification once step 1 is resolved.
 3. **Repository setting**: Settings -> Pages -> Build and deployment ->
    Source: "GitHub Actions" (one-time, cannot be set via a workflow file).
-4. **`PUBLIC_WAITLIST_ENDPOINT` repository secret**: deploy
+4. **`PUBLIC_WAITLIST_ENDPOINT` repository variable** (not a secret - see
+   "Waitlist on GitHub Pages" above): deploy
    `integrations/google-apps-script/Code.gs` (see its header comment) and
-   add the resulting `/exec` URL as a repo secret with that exact name.
+   add the resulting `/exec` URL as a repo variable with that exact name
+   (`gh variable set PUBLIC_WAITLIST_ENDPOINT --body "<url>"`).
 5. **Clerk** (optional, only if/when used): publishable key only, as a
    repository secret or committed to `pages-config.js` at build time - the
    secret key must never reach `dist/`.
