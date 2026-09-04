@@ -112,7 +112,8 @@ section[id],main[id]{scroll-margin-top:96px}
 
 /* ---------- Hero ---------- */
 .hero-wrap{position:relative;overflow:hidden;padding:60px 0 8px}
-.hero-copy{max-width:640px;margin-bottom:44px}
+.herotop{margin-bottom:44px}
+.hero-copy{max-width:640px}
 .hero-copy .eyebrow{margin-bottom:20px}
 .hero-copy h1{margin:0 0 20px}
 .hero-copy .lead{max-width:560px;margin:0 0 28px}
@@ -122,6 +123,17 @@ section[id],main[id]{scroll-margin-top:96px}
 .proof div{padding:0;border:0;border-left:2px solid var(--line-soft);padding-left:12px}
 .proof b{display:block;font-size:18px;letter-spacing:-.02em}
 .proof span{font-size:11.5px;color:var(--muted)}
+
+/* Wide screens: the headline column tops out at 640px well inside the
+   1360px container, leaving a dead gap to its right. Move the proof
+   stats there as a companion panel instead of leaving it empty.
+   Below 1081px it reverts to the plain stacked row (untouched). */
+@media(min-width:1081px){
+  .herotop{display:grid;grid-template-columns:minmax(0,640px) 1fr;gap:40px;align-items:center}
+  .heroproof{display:flex;height:100%;align-items:center}
+  .heroproof .proof{flex-direction:column;gap:20px;width:100%;padding:26px 24px;background:rgba(255,255,255,.025);border:1px solid var(--line-soft);border-radius:var(--radius-lg)}
+  .heroproof .proof div{border-left:2px solid var(--line-soft);padding-left:14px}
+}
 
 /* Hero live product surface — asymmetric, occupies the lower fold.
    The gradient-border + pointer-tilt technique is decoration only: it
@@ -302,7 +314,7 @@ section[id],main[id]{scroll-margin-top:96px}
 .field{display:flex;flex-direction:column;gap:7px;margin:11px 0}
 .field.full{grid-column:1/-1}
 .field label{font-size:12px;font-weight:700;color:#bfd0dc}
-.field input,.field select{background:#0a141d;border:1px solid #223648;border-radius:10px;color:#fff;padding:12px 13px;font-size:15px;outline:none;font-family:inherit;transition:border-color var(--motion-fast)}
+.field input,.field select{background:#0a141d;border:1px solid #223648;border-radius:10px;color:#fff;padding:12px 13px;font-size:16px;outline:none;font-family:inherit;transition:border-color var(--motion-fast)}
 .field input:focus,.field select:focus{border-color:var(--accent)}
 .message{min-height:22px;font-size:13px;margin-top:8px;color:var(--accent)}
 .honeypot{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
@@ -498,4 +510,14 @@ html.js .reveal.in .lockcard:nth-child(2){transition-delay:80ms}
   .footer .container{flex-direction:column;align-items:flex-start}
   .authpage{padding:36px 16px}
   .tick{padding:8px 18px;font-size:11.5px}
+  /* Modal previously clipped its bottom fields/button on short phones:
+     .modal-card had overflow:hidden with only the inner .modal-form
+     scrolling, so brand-panel height + form height together could
+     exceed the 90vh cap and get cut off instead of scrolling. Let the
+     whole card scroll as one unit instead. */
+  .modal-overlay{padding:12px}
+  .modal-card{max-height:94vh;overflow-y:auto}
+  .modal-brand{padding:18px 18px 4px}
+  .modal-brand h2{font-size:17px}
+  .modal-form{padding:14px 18px 20px;max-height:none;overflow-y:visible}
 }
