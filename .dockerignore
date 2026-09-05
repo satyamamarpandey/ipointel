@@ -1,9 +1,20 @@
 .git
+.github
+# Every real-secret file, not just .env: .env.production holds ADMIN_TOKEN and
+# the Postgres password, and `COPY . .` would otherwise bake it into an image
+# layer that anyone who can pull the image can read back.
 .env
+.env.*
 .venv
 __pycache__
 .pytest_cache
+.ruff_cache
+# Local databases and operator backups - never belong in an image. The
+# unsuffixed glob deliberately also covers data/ipo.db.pre-phase14-backup.
 data/*.db
+data/*.db.*
+backups
+dist
 *.zip
 bin
 freeresend
