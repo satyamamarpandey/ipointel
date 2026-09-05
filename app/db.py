@@ -47,7 +47,16 @@ def _migrate_sqlite():
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
 
 def init_db():
+    """Dev/test convenience only. In production the schema is owned by
+    Alembic (`alembic upgrade head`, run by the `migrate` service before web
+    and worker start - see docker-compose.production.yml). create_all() there
+    would silently re-create anything a missed migration left out, hiding
+    drift between the deployed database and the migration history instead of
+    failing loudly, and it never runs a data migration at all."""
     from . import models  # noqa: F401
+    from .config import _PRODUCTION_ENV_VALUES
+    if settings.app_env in _PRODUCTION_ENV_VALUES:
+        return
     Base.metadata.create_all(bind=engine)
     if settings.database_url.startswith("sqlite"):
         _migrate_sqlite()

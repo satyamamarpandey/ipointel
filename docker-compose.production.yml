@@ -12,6 +12,21 @@ services:
       timeout: 5s
       retries: 20
     restart: unless-stopped
+  # Schema owner. Runs once per `docker compose up`, to completion, before web
+  # and worker start - so exactly one process migrates (web and worker would
+  # otherwise race each other on boot) and neither ever serves traffic against
+  # a database that is behind the migration history. app.db.init_db() is a
+  # deliberate no-op under APP_ENV=production for the same reason.
+  migrate:
+    build: .
+    command: ["python","-m","alembic","upgrade","head"]
+    env_file: .env
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://ipo:${POSTGRES_PASSWORD}@db:5432/ipo
+    depends_on:
+      db: {condition: service_healthy}
+    restart: "no"
   web:
     build: .
     env_file: .env
@@ -21,6 +36,7 @@ services:
       STRICT_RELIABILITY: "true"
     depends_on:
       db: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 20s
@@ -37,6 +53,7 @@ services:
       STRICT_RELIABILITY: "true"
     depends_on:
       db: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
     restart: unless-stopped
   caddy:
     image: caddy:2.9-alpine
