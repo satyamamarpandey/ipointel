@@ -3,8 +3,24 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from .config import get_settings
 
 settings = get_settings()
-connect_args = {"check_same_thread": False, "timeout": 30} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, future=True, pool_pre_ping=True, connect_args=connect_args)
+_is_sqlite = settings.database_url.startswith("sqlite")
+connect_args = {"check_same_thread": False, "timeout": 30} if _is_sqlite else {}
+# Pool sizing only applies to a real server. SQLite uses SingletonThreadPool/
+# NullPool depending on the driver and rejects these arguments outright.
+_pool_kwargs = {} if _is_sqlite else {
+    "pool_size": settings.db_pool_size,
+    "max_overflow": settings.db_max_overflow,
+    # Bounded wait instead of hanging forever when every connection is busy:
+    # a request that cannot get a connection should fail fast and free its
+    # worker thread, not pile up behind an exhausted pool.
+    "pool_timeout": settings.db_pool_timeout,
+    # Recycle below the shortest idle timeout in the path (Postgres
+    # idle_session_timeout, PgBouncer, or a cloud provider's silent 5-minute
+    # NAT drop). pool_pre_ping catches a dead connection on checkout; this
+    # keeps them from going stale in the first place.
+    "pool_recycle": settings.db_pool_recycle_seconds,
+}
+engine = create_engine(settings.database_url, future=True, pool_pre_ping=True, connect_args=connect_args, **_pool_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 class Base(DeclarativeBase):

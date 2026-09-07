@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     # publishes a complete route inventory - admin endpoints included.
     enable_api_docs: bool = True
     sentry_dsn: str = ""  # optional; error reporting is a no-op while unset
+    # PostgreSQL connection pool (ignored on SQLite, which has no server pool).
+    # Defaults suit one web container plus one worker against a small Postgres;
+    # pool_size + max_overflow per process must stay under the server's
+    # max_connections (100 by default) with room for psql/pg_dump.
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_timeout: int = 30
+    db_pool_recycle_seconds: int = 1800
 
     @model_validator(mode="after")
     def _docs_default_closed_in_production(self):

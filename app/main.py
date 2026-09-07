@@ -32,6 +32,26 @@ from .services import walkforward as walkforward_svc
 
 logging.basicConfig(level=logging.INFO,format="%(message)s")
 S=get_settings(); validate_production_settings(S); BASE=Path(__file__).parent; STATIC=BASE/"static"
+
+def _init_error_reporting(settings)->bool:
+    """Optional Sentry. Entirely inert unless SENTRY_DSN is set, so the
+    default deployment sends nothing anywhere. A missing package or a bad DSN
+    is logged and swallowed - error reporting failing to start must never be
+    what stops the app from starting."""
+    if not settings.sentry_dsn:return False
+    try:
+        import sentry_sdk
+        sentry_sdk.init(dsn=settings.sentry_dsn,environment=settings.app_env,release="2.0.0",
+            traces_sample_rate=0.0,  # errors only; tracing is a paid-quota decision, not a default
+            send_default_pii=False)  # never ship request bodies/emails to a third party by default
+        logging.info(json.dumps({"level":"info","component":"web","msg":"error reporting enabled"}))
+        return True
+    except Exception as e:
+        logging.warning(json.dumps({"level":"warning","component":"web",
+            "msg":f"SENTRY_DSN set but error reporting could not start: {type(e).__name__}: {e}"}))
+        return False
+
+_init_error_reporting(S)
 @asynccontextmanager
 async def lifespan(app):
     init_db()
@@ -231,6 +251,30 @@ def health(db:Session=Depends(db_dep)):
     except Exception as e:
         logging.getLogger("app.access").warning(json.dumps({"level":"warning","component":"web","route":"/health","msg":f"{type(e).__name__}: {e}"}))
         raise HTTPException(503,"database unavailable")
+
+@app.get("/health/live")
+def health_live():
+    """Liveness: is this process able to serve at all. Deliberately touches
+    no dependency - a database blip must not convince an orchestrator to
+    restart a web container that is working fine and would recover on its
+    own. /health (kept as-is for the existing compose healthcheck) and
+    /health/ready are the checks that do look at the database."""
+    return {"status":"ok","version":"2.0.0"}
+
+@app.get("/health/ready")
+def health_ready(db:Session=Depends(db_dep)):
+    """Readiness: should this instance receive traffic. Checks the database
+    and reports whether the schema is at the migration head - a container
+    started against a database the migrations have not reached yet is up but
+    not ready, and answering 200 there is how half-migrated deploys serve
+    errors to real users."""
+    try:
+        db.scalar(select(func.count()).select_from(IPO))
+    except Exception as e:
+        logging.getLogger("app.access").warning(json.dumps({"level":"warning","component":"web",
+            "route":"/health/ready","msg":f"{type(e).__name__}: {e}"}))
+        raise HTTPException(503,"database unavailable")
+    return {"status":"ready","version":"2.0.0","time":datetime.now(timezone.utc).isoformat()}
 
 @app.post("/api/waitlist",response_model=WaitlistOut)
 def waitlist(payload:WaitlistIn,request:Request,db:Session=Depends(db_dep)):
