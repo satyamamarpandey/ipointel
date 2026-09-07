@@ -1,0 +1,18 @@
+# Normalise text in the repository, and pin LF for anything executed inside a
+# Linux container. A shell script committed with CRLF from a Windows checkout
+# fails in Alpine with a bare "\r: not found" - the file looks perfect in an
+# editor and the container refuses to run it. The backup service mounts
+# deploy/*.sh directly, so this is not hypothetical.
+* text=auto
+
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+deploy/Caddyfile* text eol=lf
+
+*.png binary
+*.ico binary
+*.db  binary
+*.dump binary
+*.xlsx binary
