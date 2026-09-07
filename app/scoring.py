@@ -87,6 +87,25 @@ def valuation(ipo: IPO) -> Valuation:
     base=mean(fair) if fair else None
     return Valuation(label,s,base*0.9 if base else None,base*1.1 if base else None,pe,ps,notes)
 
+# Regulator/exchange domains whose documents count as a Tier-1 primary source.
+# Matched on the parsed hostname, never as a substring of the whole URL: the
+# previous `"nse" in url.lower()` test promoted any URL that merely contained
+# those three letters - "consensus", "nonsense", a ?ref=nse query parameter -
+# to full primary-source confidence, and `"sec.gov" in url` would equally
+# accept https://sec.gov.example.com/ or a path segment. Both inflate the
+# confidence figure that gates whether a recommendation is shown at all.
+PRIMARY_SOURCE_HOSTS = ("sec.gov", "nseindia.com", "sebi.gov.in")
+
+def is_primary_source_url(url: str | None) -> bool:
+    from urllib.parse import urlparse
+    if not url:
+        return False
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:  # malformed URL (bad IPv6 literal, etc.)
+        return False
+    return any(host == h or host.endswith("." + h) for h in PRIMARY_SOURCE_HOSTS)
+
 def confidence(ipo: IPO, conflicts: int = 0) -> float:
     fields=[
       ipo.price_high, ipo.revenue_m, ipo.revenue_prev_m, ipo.net_income_m, ipo.cfo_m,
@@ -94,7 +113,7 @@ def confidence(ipo: IPO, conflicts: int = 0) -> float:
       ipo.fresh_issue_pct if ipo.country.lower()=="india" else ipo.lockup_days,
     ]
     complete=sum(v not in (None,"") for v in fields)/len(fields)
-    primary = 1.0 if (ipo.filing_url and ("sec.gov" in ipo.filing_url or "nse" in ipo.filing_url.lower() or "sebi" in ipo.filing_url.lower())) else 0.72
+    primary = 1.0 if is_primary_source_url(ipo.filing_url) else 0.72
     flag_pen=min(0.28, len(ipo.data_flags or [])*0.035)
     conflict_pen=min(0.25, conflicts*0.08)
     return clamp((0.68*complete+0.32*primary-flag_pen-conflict_pen)*100)

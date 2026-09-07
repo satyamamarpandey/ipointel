@@ -13,3 +13,42 @@ def test_sparse_data_refuses_recommendation():
 
 def test_valuation_peer_compare():
     v=valuation(strong());assert v.label in {'UNDERPRICED','FAIR','OVERPRICED'};assert v.fair_low is not None
+
+
+# ---- primary-source detection is host-based, not substring-based ----------
+# `"nse" in url.lower()` promoted any URL merely containing those letters to
+# full primary-source confidence, and that figure gates whether a
+# recommendation is shown at all.
+
+from app.scoring import is_primary_source_url
+
+
+def test_real_regulator_and_exchange_urls_count_as_primary():
+    for url in ("https://www.sec.gov/Archives/edgar/data/1/x.htm",
+                "https://sec.gov/x",
+                "https://nsearchives.nseindia.com/content/a.xlsx",
+                "https://www.nseindia.com/x",
+                "https://www.sebi.gov.in/filings/x.pdf"):
+        assert is_primary_source_url(url) is True, url
+
+
+def test_lookalike_domains_are_not_primary():
+    """The substring test accepted every one of these."""
+    for url in ("https://sec.gov.evil.example.com/filing",
+                "https://notsec.gov.co/x",
+                "https://nseindia.com.phish.example/x"):
+        assert is_primary_source_url(url) is False, url
+
+
+def test_unrelated_domains_that_merely_contain_the_letters_are_not_primary():
+    """"consensus" and "nonsense" both contain "nse"."""
+    for url in ("https://consensus-research.example/report",
+                "https://nonsense.example/filing",
+                "https://example.com/redirect?to=nseindia.com",
+                "https://example.com/sec.gov/fake"):
+        assert is_primary_source_url(url) is False, url
+
+
+def test_missing_or_malformed_urls_are_not_primary():
+    for url in (None, "", "not a url", "http://["):
+        assert is_primary_source_url(url) is False, repr(url)
