@@ -38,7 +38,7 @@ def test_clerk_identity_links_to_existing_lead_by_email_without_changing_access(
     assert synced.clerk_user_id == "user_xyz"
 
 def test_disabled_lead_stays_disabled_after_clerk_sync(db):
-    lead = _lead(db, email="blocked@example.com", access_status="DISABLED")
+    _lead(db, email="blocked@example.com", access_status="DISABLED")
     synced = clerk_svc.sync_identity(db, clerk_user_id="user_blocked", email="blocked@example.com")
     db.commit()
     assert synced.access_status == "DISABLED"

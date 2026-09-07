@@ -1,6 +1,5 @@
 from __future__ import annotations
 import re
-from datetime import datetime, timezone
 from io import BytesIO
 import httpx
 from bs4 import BeautifulSoup
@@ -94,8 +93,8 @@ def parse_monthly_xlsx(content:bytes):
             d={headers[i]:row[i] for i in range(min(len(headers),len(row))) if headers[i]}
             company=next((str(v) for k,v in d.items() if v and any(t in k for t in ("company","issuer","issue name"))),"")
             if not company:continue
-            def pick(*terms):
-                for k,v in d.items():
+            def pick(*terms,_row=d):
+                for k,v in _row.items():
                     if all(t in k for t in terms):return v
                 return None
             symbol=next((str(v) for k,v in d.items() if v and "symbol" in k),"")

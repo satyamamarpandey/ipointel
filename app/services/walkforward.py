@@ -83,7 +83,7 @@ def _spearman(xs: list[float], ys: list[float]) -> float | None:
         return ranks
     rx, ry = rank(xs), rank(ys)
     mx, my = mean(rx), mean(ry)
-    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
+    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry, strict=True))
     den = (sum((a - mx) ** 2 for a in rx) * sum((b - my) ** 2 for b in ry)) ** 0.5
     return num / den if den else None
 
@@ -104,7 +104,7 @@ def _calibration(pairs: list[tuple[float, int]], buckets=5) -> list[dict]:
 
 def _band_breakdown(rows: list[dict], score_key: str, return_key: str) -> list[dict]:
     out = []
-    for (lo, hi), label in zip(BANDS, BAND_LABELS):
+    for (lo, hi), label in zip(BANDS, BAND_LABELS, strict=True):
         chunk = [r for r in rows if lo <= r[score_key] < hi and r[return_key] is not None]
         if not chunk:
             out.append({"band": label, "n": 0})

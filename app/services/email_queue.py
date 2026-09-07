@@ -4,7 +4,7 @@ they call enqueue(), which is a fast local DB insert, and commit. This module's
 process_queue() is what actually talks to the provider, called frequently by
 the worker so delivery still feels prompt without coupling it to the HTTP
 request/response cycle."""
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError

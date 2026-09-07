@@ -356,6 +356,6 @@ def test_queue_score_alerts_filters_by_market(db):
                         recommendation="INVEST SELECTIVELY", horizon="BOTH", valuation_label="FAIR", pillars={}, rationale=[], risks=[], what_changes_verdict=[])
     db.add(sc); db.commit(); db.refresh(sc)
     india_only = _lead(db, email="india@example.com", unsubscribe_token="tokindia", markets="india")
-    result = alerts_svc.queue_score_alerts(db)
+    alerts_svc.queue_score_alerts(db)
     db.commit()
     assert db.scalar(select(EmailMessage).where(EmailMessage.lead_id == india_only.id)) is None

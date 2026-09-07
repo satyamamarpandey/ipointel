@@ -96,3 +96,21 @@ def test_production_refuses_unknown_email_provider():
 def test_production_refuses_email_with_no_sender_address():
     with pytest.raises(ProductionConfigError, match="sender address"):
         validate_production_settings(_settings(enable_email=True, email_provider="resend", resend_api_key="re_live_key", email_from="", resend_from=""))
+
+
+# ---- Swagger UI is not published by accident in production ----------------
+
+def test_api_docs_are_on_by_default_outside_production():
+    assert Settings(app_env="development").enable_api_docs is True
+
+
+def test_api_docs_default_closed_under_production(monkeypatch):
+    """Forgetting to set ENABLE_API_DOCS must not be what publishes a full
+    route inventory (admin endpoints included) on a public host."""
+    monkeypatch.delenv("ENABLE_API_DOCS", raising=False)
+    assert _settings().enable_api_docs is False
+
+
+def test_operator_can_still_opt_back_into_docs_in_production(monkeypatch):
+    monkeypatch.setenv("ENABLE_API_DOCS", "true")
+    assert _settings(enable_api_docs=True).enable_api_docs is True

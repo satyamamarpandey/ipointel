@@ -19,7 +19,7 @@ def fetch_yahoo_history(symbol:str,country:str,period1:int=0,period2:int|None=No
         if not res:return {"url":url,"prices":[]}
         ts=res[0].get("timestamp") or []; quote=(res[0].get("indicators",{}).get("quote") or [{}])[0]
         closes=quote.get("close") or []; opens=quote.get("open") or []
-        bars=[{"ts":t,"open":o,"close":c} for t,o,c in zip(ts,opens,closes) if c is not None]
+        bars=[{"ts":t,"open":o,"close":c} for t,o,c in zip(ts,opens,closes,strict=False) if c is not None]
         return {"url":url,"prices":bars}
 
 def fetch_benchmark_history(country:str):

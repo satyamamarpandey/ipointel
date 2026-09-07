@@ -63,7 +63,7 @@ def find_similar(db: Session, target: IPO, k: int = 8, candidates: list[IPO] | N
     top = scored[:k]
 
     matches = []
-    for dist, ndims, c, cf, dims in top:
+    for dist, ndims, c, _cf, dims in top:
         perf = _latest_perf(db, c.id)
         why = []
         for f in dims:

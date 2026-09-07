@@ -1,5 +1,9 @@
+import os
 from functools import lru_cache
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_PRODUCTION_ENV_VALUES = {"production", "prod"}
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -39,6 +43,20 @@ class Settings(BaseSettings):
     google_sheets_enabled: bool = False
     google_sheets_spreadsheet_id: str = ""
     google_sheets_service_account_json: str = ""  # raw JSON string (server-side env only, never committed, never sent to frontend)
+    # Swagger UI at /api/docs. Left on for local/dev work; defaults off under
+    # APP_ENV=production (see the validator below, which flips it) because it
+    # publishes a complete route inventory - admin endpoints included.
+    enable_api_docs: bool = True
+    sentry_dsn: str = ""  # optional; error reporting is a no-op while unset
+
+    @model_validator(mode="after")
+    def _docs_default_closed_in_production(self):
+        """Secure by default without taking the choice away: production turns
+        Swagger off unless ENABLE_API_DOCS was set explicitly, so an operator
+        who wants it still gets it, but forgetting is not what publishes it."""
+        if self.app_env in _PRODUCTION_ENV_VALUES and "ENABLE_API_DOCS" not in os.environ:
+            self.enable_api_docs = False
+        return self
 
 @lru_cache
 def get_settings() -> Settings:
@@ -51,7 +69,6 @@ class ProductionConfigError(RuntimeError):
     SQLite, or with the default admin token) is worse than refusing to
     start."""
 
-_PRODUCTION_ENV_VALUES = {"production", "prod"}
 _KNOWN_EMAIL_PROVIDERS = {"mailpit", "smtp", "freeresend", "resend"}
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 

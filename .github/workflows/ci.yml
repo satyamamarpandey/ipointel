@@ -25,6 +25,8 @@ jobs:
         with: {python-version: '3.13'}
       - run: pip install -r requirements.txt
       - run: python -m compileall -q app
+      - name: Lint (ruff - defect rules only, see ruff.toml)
+        run: python -m ruff check .
       - name: Restore public dataset for pages-build tests (data-state branch)
         # tests/test_pages_build.py exercises scripts/build_pages.py against
         # a real DATABASE_URL - without this, a fresh checkout has no

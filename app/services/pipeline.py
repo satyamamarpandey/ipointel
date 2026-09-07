@@ -8,7 +8,7 @@ from ..models import IPO, ScoreSnapshot, Provenance, IngestionRun, PerformanceSn
 from ..scoring import compute_score, feature_snapshot, FEATURE_SCHEMA_VERSION
 from ..config import get_settings
 from . import sec,nse,market,enrichment
-from .net_safety import validate_outbound_url,UnsafeUrlError
+from .net_safety import validate_outbound_url
 
 _NSE_ALLOWED_HOSTS={"nsearchives.nseindia.com","www.nseindia.com","nseindia.com","archives.nseindia.com"}
 
@@ -186,7 +186,7 @@ def ingest_nse(db:Session):
         rows,warnings=nse.fetch_current()
         for row in rows:
             seen+=1
-            if upsert_ipo(db,row,"NSE",f"https://www.nseindia.com/market-data/all-upcoming-issues-ipo",1):changed+=1
+            if upsert_ipo(db,row,"NSE","https://www.nseindia.com/market-data/all-upcoming-issues-ipo",1):changed+=1
         run.status="ok" if not warnings else "partial";run.error=" | ".join(warnings)[:4000];run.rows_seen=seen;run.rows_changed=changed;run.finished_at=now();db.commit()
     except Exception as e:db.rollback();run=db.get(IngestionRun,run.id);run.status="error";run.error=str(e)[:4000];run.finished_at=now();db.commit()
     return run

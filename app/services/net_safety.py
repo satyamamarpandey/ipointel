@@ -71,7 +71,7 @@ def validate_outbound_url(url: str, *, allowed_hosts: set[str] | None = None) ->
         infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror as e:
         raise UnsafeUrlError(f"Could not resolve host {host!r}: {e}")
-    for family, _, _, _, sockaddr in infos:
+    for _family, _, _, _, sockaddr in infos:
         ip = ipaddress.ip_address(sockaddr[0])
         if _is_blocked_ip(ip):
             raise UnsafeUrlError(f"Refusing host {host!r} - resolves to blocked address {ip}")

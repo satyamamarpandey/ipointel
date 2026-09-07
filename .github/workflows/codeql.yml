@@ -1,0 +1,22 @@
+# GitHub's own static analysis. Free for this repository, and it catches a
+# different class of problem than ruff: taint flow into subprocess/SQL/HTTP,
+# not local code smells.
+name: CodeQL
+on:
+  push: {branches: [master]}
+  pull_request: {branches: [master]}
+  schedule:
+    - cron: "23 4 * * 1"   # weekly, so a newly published rule still finds old code
+permissions:
+  security-events: write
+  contents: read
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          queries: security-and-quality
+      - uses: github/codeql-action/analyze@v3

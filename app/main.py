@@ -1,8 +1,7 @@
 from __future__ import annotations
 import asyncio,secrets,time,csv,io,json,logging,uuid
 from contextlib import asynccontextmanager
-from collections import defaultdict,deque
-from datetime import datetime,timezone,timedelta
+from datetime import datetime,timezone
 from pathlib import Path
 from fastapi import FastAPI,Depends,HTTPException,Request,Query,Header
 from fastapi.responses import FileResponse,StreamingResponse,RedirectResponse,JSONResponse
@@ -11,13 +10,14 @@ from sqlalchemy import select,func,or_
 from sqlalchemy.orm import Session
 from .config import get_settings,validate_production_settings
 from .db import init_db,SessionLocal
-from .models import IPO,ScoreSnapshot,Provenance,PerformanceSnapshot,IngestionRun,WaitlistLead,EmailMessage,PredictionOutcome,AdminAuditLog,SheetsSyncOutbox
+from .models import IPO,ScoreSnapshot,PerformanceSnapshot,IngestionRun,WaitlistLead,EmailMessage,PredictionOutcome,AdminAuditLog
 from .schemas import WaitlistIn,WaitlistOut
 from .services.email_queue import enqueue,process_queue
 from .services import email_provider as ep
 from .services import webhooks as webhooks_svc
 from .services import auth as auth_svc
 from .services import sheets_sync as sheets_svc
+from .services.ratelimit import SlidingWindowLimiter
 from .services import clerk_auth as clerk_svc
 from .services import heartbeat as heartbeat_svc
 from .services.backtest import summarize as backtest_summary
@@ -37,7 +37,12 @@ async def lifespan(app):
     init_db()
     yield
 
-app=FastAPI(title=S.app_name,version="2.0.0",docs_url="/api/docs",redoc_url=None,lifespan=lifespan)
+# Swagger UI enumerates every route, including the admin surface, to anyone
+# who asks. Useful while building; not something to expose by default on a
+# public production host. Off under APP_ENV=production unless the operator
+# opts back in with ENABLE_API_DOCS=true.
+_DOCS_URL="/api/docs" if S.enable_api_docs else None
+app=FastAPI(title=S.app_name,version="2.0.0",docs_url=_DOCS_URL,redoc_url=None,openapi_url="/api/openapi.json" if S.enable_api_docs else None,lifespan=lifespan)
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request:Request,exc:Exception):
@@ -59,8 +64,10 @@ if S.clerk_publishable_key:
     _CSP="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' https://*.clerk.accounts.dev https://*.clerk.com; img-src 'self' data: https://img.clerk.com; connect-src 'self' https://*.clerk.accounts.dev https://*.clerk.com; frame-src https://*.clerk.accounts.dev https://*.clerk.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 else:
     _CSP="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-rate=defaultdict(lambda:deque(maxlen=20))
-auth_rate=defaultdict(lambda:deque(maxlen=20))
+# Bounded: the previous defaultdict never evicted, so every unique client IP
+# leaked a bucket for the life of the process. See services/ratelimit.py.
+rate=SlidingWindowLimiter()
+auth_rate=SlidingWindowLimiter()
 
 def db_dep():
     db=SessionLocal()
@@ -82,10 +89,7 @@ def audit(db:Session,action:str,target:str="",**meta):
     db.add(AdminAuditLog(action=action,target=target,meta=meta))
 
 def rate_limited(bucket,key:str,limit:int,window_s:int=60)->bool:
-    now=time.time();q=bucket[key]
-    while q and now-q[0]>window_s:q.popleft()
-    if len(q)>=limit:return True
-    q.append(now);return False
+    return bucket.hit(key,limit,window_s)
 
 def latest_score(db,ipo_id):return db.scalar(select(ScoreSnapshot).where(ScoreSnapshot.ipo_id==ipo_id).order_by(ScoreSnapshot.created_at.desc()).limit(1))
 def perf(db,ipo_id):return db.scalar(select(PerformanceSnapshot).where(PerformanceSnapshot.ipo_id==ipo_id).order_by(PerformanceSnapshot.created_at.desc()).limit(1))
@@ -232,10 +236,8 @@ def health(db:Session=Depends(db_dep)):
 def waitlist(payload:WaitlistIn,request:Request,db:Session=Depends(db_dep)):
     if payload.website:return WaitlistOut(ok=True,message="Thanks — you're on the list.")
     if not payload.consent:raise HTTPException(400,"Consent is required to join the update list.")
-    ip=request.client.host if request.client else "unknown";now=time.time();q=rate[ip]
-    while q and now-q[0]>60:q.popleft()
-    if len(q)>=6:raise HTTPException(429,"Too many signup attempts. Try again shortly.")
-    q.append(now)
+    ip=request.client.host if request.client else "unknown"
+    if rate_limited(rate,f"waitlist:{ip}",6,60):raise HTTPException(429,"Too many signup attempts. Try again shortly.")
     email=str(payload.email).strip().lower();existing=db.scalar(select(WaitlistLead).where(WaitlistLead.email==email))
     if existing:
         if not existing.consent:

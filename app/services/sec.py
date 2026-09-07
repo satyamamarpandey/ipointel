@@ -1,6 +1,5 @@
 from __future__ import annotations
 import re, xml.etree.ElementTree as ET
-from datetime import datetime, timezone
 import httpx
 from .net_safety import validate_outbound_url
 
@@ -73,7 +72,7 @@ def latest_fact(facts:dict, concepts:list[str], taxonomies=("us-gaap","ifrs-full
     for tax in taxonomies:
         for concept in concepts:
             node=facts.get("facts",{}).get(tax,{}).get(concept,{})
-            for unit,vals in node.get("units",{}).items():
+            for _unit,vals in node.get("units",{}).items():
                 for x in vals:
                     if x.get("val") is not None:
                         candidates.append(x)

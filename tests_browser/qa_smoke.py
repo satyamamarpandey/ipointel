@@ -214,11 +214,11 @@ def main():
         else:
             results["warnings"].append("[waitlist] #waitlistForm not found on landing page")
 
-        invalid = page.evaluate(f"""async () => {{
-            const r = await fetch('/api/waitlist', {{method:'POST', headers:{{'Content-Type':'application/json'}},
-                body: JSON.stringify({{email:'not-an-email', name:'x', investor_type:'retail', markets:'both', consent:true, website:''}})}});
+        invalid = page.evaluate("""async () => {
+            const r = await fetch('/api/waitlist', {method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({email:'not-an-email', name:'x', investor_type:'retail', markets:'both', consent:true, website:''})});
             return r.status;
-        }}""")
+        }""")
         if invalid < 400:
             results["errors"].append(f"[waitlist] invalid email accepted, status={invalid}")
 

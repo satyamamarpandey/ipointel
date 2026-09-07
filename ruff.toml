@@ -1,0 +1,23 @@
+# Deliberately a narrow, high-signal rule set rather than the full catalogue.
+# This codebase has a settled house style - dense one-line handlers, compact
+# semicolon-joined statements, imports placed after sys.path setup in scripts.
+# Style rules (E4/E7/E501) flag ~600 instances of that on sight, and
+# reformatting working code is how you introduce bugs while "linting". So the
+# selection is limited to rule families that catch real defects: pyflakes
+# (undefined names, unused imports/variables), pycodestyle's runtime errors,
+# bugbear (mutable defaults, loop-variable capture, zip without strict) and
+# the comprehension rules. C4 (comprehension style) is excluded for the same
+# reason as E4/E7: dict()-vs-{} is taste, not a defect.
+target-version = "py313"
+line-length = 200
+
+[lint]
+select = ["F", "E9", "B"]
+ignore = [
+    "B008",  # FastAPI's Depends()/Header() in argument defaults is the framework idiom
+    "B904",  # raise-from inside except: noisy across the compact handler style
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["B", "F401"]
+"alembic/*" = ["F401"]
