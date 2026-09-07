@@ -21,6 +21,43 @@
 <meta name="twitter:description" content="Know the IPO before the market prices it.">
 <meta name="twitter:image" content="https://ipointel.brandsap.com/static/brand/og-image.png">
 <link rel="stylesheet" href="/static/styles.css">
+<!-- Structured data. A JSON-LD data block, not executable script: it is inert
+     under our script-src 'self' CSP (no 'unsafe-inline' needed) because the
+     type is not a JavaScript MIME type, so the browser never runs it. Name and
+     description are the same strings as <title>/<meta description> above. -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "@id": "https://ipointel.brandsap.com/#software",
+  "name": "IPO Intelligence Terminal",
+  "url": "https://ipointel.brandsap.com/",
+  "description": "Evidence-first IPO intelligence for India and the United States. Filings, valuation, institutional demand and historical evidence — with separate listing-gain and long-term signals.",
+  "applicationCategory": "FinanceApplication",
+  "applicationSubCategory": "Investment research",
+  "operatingSystem": "Any (web browser)",
+  "image": "https://ipointel.brandsap.com/static/brand/og-image.png",
+  "inLanguage": "en",
+  "isAccessibleForFree": true,
+  "founder": {
+    "@type": "Person",
+    "@id": "https://pandeysatyam.com/#person",
+    "name": "Satyam Pandey",
+    "url": "https://pandeysatyam.com"
+  },
+  "publisher": {
+    "@type": "Organization",
+    "name": "Brandsap",
+    "url": "https://brandsap.com"
+  },
+  "sameAs": [
+    "https://pandeysatyam.com/",
+    "https://brandsap.com/",
+    "https://www.linkedin.com/in/pandeysatyam/",
+    "https://github.com/satyamamarpandey"
+  ]
+}
+</script>
 </head>
 <body class="landing">
 <a class="skip-link" href="#main">Skip to content</a>
@@ -339,6 +376,7 @@
 <footer class="footer">
   <div class="container">
     <div>IPO Intelligence Terminal · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div>
+    <div class="tiny">Part of <a href="https://brandsap.com" target="_blank" rel="noopener noreferrer">Brandsap</a> · Founder: <a href="https://pandeysatyam.com" target="_blank" rel="noopener noreferrer">Satyam Pandey</a></div>
     <div class="tiny">© 2026 IPO Intelligence</div>
   </div>
 </footer>

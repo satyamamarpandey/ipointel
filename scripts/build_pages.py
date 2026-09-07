@@ -292,7 +292,16 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
 
     template = (STATIC / "pages-detail-template.html").read_text(encoding="utf-8")
     snapshot_label = now.strftime("%b %d, %Y %H:%M UTC")
-    urls = [base_url + "/", base_url + "/dashboard/"]
+    # Only routes this build actually emits. /privacy and /terms are the
+    # extensionless forms: GitHub Pages resolves them to the privacy.html /
+    # terms.html written below, and they are also the real FastAPI routes in
+    # server mode - so they match the <link rel="canonical"> in those files.
+    urls = [
+        base_url + "/",
+        base_url + "/dashboard/",
+        base_url + "/privacy",
+        base_url + "/terms",
+    ]
     for ipo in published:
         slug = id_to_slug[ipo.id]
         canonical = f"{base_url}/ipo/{slug}/"
