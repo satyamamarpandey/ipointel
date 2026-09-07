@@ -14,12 +14,12 @@ services:
     logging: *default-logging
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: ipo
-      POSTGRES_USER: ipo
+      POSTGRES_DB: ${POSTGRES_DB:-ipo}
+      POSTGRES_USER: ${POSTGRES_USER:-ipo}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes: ["ipo_pg:/var/lib/postgresql/data"]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ipo"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ipo} -d ${POSTGRES_DB:-ipo}"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -35,7 +35,7 @@ services:
     env_file: .env
     environment:
       APP_ENV: production
-      DATABASE_URL: postgresql+psycopg://ipo:${POSTGRES_PASSWORD}@db:5432/ipo
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ipo}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ipo}
     depends_on:
       db: {condition: service_healthy}
     restart: "no"
@@ -45,7 +45,7 @@ services:
     env_file: .env
     environment:
       APP_ENV: production
-      DATABASE_URL: postgresql+psycopg://ipo:${POSTGRES_PASSWORD}@db:5432/ipo
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ipo}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ipo}
       STRICT_RELIABILITY: "true"
     depends_on:
       db: {condition: service_healthy}
@@ -68,7 +68,7 @@ services:
     env_file: .env
     environment:
       APP_ENV: production
-      DATABASE_URL: postgresql+psycopg://ipo:${POSTGRES_PASSWORD}@db:5432/ipo
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ipo}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ipo}
       STRICT_RELIABILITY: "true"
     depends_on:
       db: {condition: service_healthy}
@@ -82,6 +82,8 @@ services:
     image: postgres:17-alpine
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_USER: ${POSTGRES_USER:-ipo}
+      POSTGRES_DB: ${POSTGRES_DB:-ipo}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
       # Optional offsite copy hook - blank means local backups only.

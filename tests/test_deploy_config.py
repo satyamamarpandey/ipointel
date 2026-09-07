@@ -130,3 +130,23 @@ def test_rollback_never_downgrades_the_schema():
     body = (ROOT / "scripts" / "rollback.sh").read_text(encoding="utf-8")
     assert "downgrade" not in body.replace("does not downgrade", "").replace(
         "no Alembic downgrade is run", ""), "rollback.sh appears to run a downgrade"
+
+
+def test_every_postgres_reference_uses_the_same_configured_name_and_user():
+    """db, migrate, web, worker and backup must all agree. If the healthcheck
+    or one DSN keeps a hardcoded name while the others are configurable,
+    setting POSTGRES_DB silently points the app at a database that does not
+    exist in the volume."""
+    text = (ROOT / "docker-compose.production.yml").read_text(encoding="utf-8")
+
+    # Anchored on the password placeholder: a plain [^:]+ stops at the colon
+    # inside ${POSTGRES_USER:-ipo} itself.
+    dsn_users = set(re.findall(r"psycopg://(.+?):\$\{POSTGRES_PASSWORD\}", text))
+    dsn_dbs = set(re.findall(r"@db:5432/(\S+)", text))
+    assert dsn_users == {"${POSTGRES_USER:-ipo}"}, f"inconsistent DSN users: {dsn_users}"
+    assert dsn_dbs == {"${POSTGRES_DB:-ipo}"}, f"inconsistent DSN databases: {dsn_dbs}"
+
+    db_block = _service_block("docker-compose.production.yml", "db")
+    assert "POSTGRES_DB: ${POSTGRES_DB:-ipo}" in db_block
+    assert "POSTGRES_USER: ${POSTGRES_USER:-ipo}" in db_block
+    assert "pg_isready -U ${POSTGRES_USER:-ipo}" in db_block, "healthcheck would check the wrong user"
