@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 from datetime import datetime, timezone
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
@@ -12,6 +13,40 @@ from .net_safety import validate_outbound_url,UnsafeUrlError
 _NSE_ALLOWED_HOSTS={"nsearchives.nseindia.com","www.nseindia.com","nseindia.com","archives.nseindia.com"}
 
 def now(): return datetime.now(timezone.utc)
+
+# Leftover EDGAR form suffix at the head of a company name: "1 - ACME, INC."
+# from S-1, "11 - ..." from S-11, "1/A - ..." from an S-1/A amendment. Fixed
+# at the source in sec.parse_atom; this is what repairs rows already stored.
+# The spaces around the hyphen are required, and that is what makes it safe:
+# a genuine numeric-leading name ("1-800-FLOWERS.COM", "3i Infotech",
+# "5paisa Capital", "360 ONE WAM") never has " - " after the digits.
+_SEC_FORM_ARTIFACT=re.compile(r"^\d{1,2}(?:/[A-Z]+)?\s+-\s+")
+
+def clean_company_name(name:str,country:str="")->str:
+    """Company names arrive from EDGAR atom titles and NSE/BSE report sheets,
+    which carry tabs, newlines and doubled spaces. Normalising here keeps the
+    dirt out of page titles, <meta>/og: tags and the public JSON feeds."""
+    if not name:return ""
+    cleaned=re.sub(r"\s+"," ",name.replace(" "," ")).strip()
+    # SEC-only: NSE names never carry this artifact, and restricting it keeps
+    # an Indian issuer that legitimately starts with digits out of reach.
+    if country.lower() in ("united states","us","usa"):
+        cleaned=_SEC_FORM_ARTIFACT.sub("",cleaned).strip()
+    return cleaned
+
+def repair_company_names(db:Session)->int:
+    """Idempotent backfill for rows stored before the parser was fixed. Runs
+    inside refresh_all() rather than as a one-shot script so every deployment
+    self-heals: the server worker and the GitHub Pages refresh (whose SQLite
+    snapshot is restored from the data-state branch each run) both call it.
+    Returns the number of rows actually changed - 0 on every run after the
+    first, so it stays silent once the data is clean."""
+    changed=0
+    for ipo in db.scalars(select(IPO)).all():
+        fixed=clean_company_name(ipo.company or "",ipo.country or "")
+        if fixed and fixed!=ipo.company:
+            ipo.company=fixed;changed+=1
+    return changed
 
 def external_key(row):
     if row.get("country","").lower()=="india":return "IN:"+(row.get("symbol") or row.get("company","")).strip().lower()
@@ -66,6 +101,11 @@ def _event_stage(created:bool,changed_fields:set,prev:dict,ipo:IPO,last:ScoreSna
     return None
 
 def upsert_ipo(db:Session,row:dict,source_name:str,source_url:str,tier:int):
+    # Single choke point for every source, so no ingester can reintroduce a
+    # dirty name. external_key already lower/strips, so this never moves a
+    # row to a different key (no duplicate, no changed /ipo/<slug>/ URL).
+    if row.get("company"):
+        row={**row,"company":clean_company_name(row["company"],row.get("country",""))}
     key=external_key(row); ipo=db.scalar(select(IPO).where(IPO.external_key==key)); created=False
     if not ipo:
         ipo=IPO(external_key=key,company=row.get("company") or "Unknown",country=row.get("country") or "Unknown");db.add(ipo);db.flush();created=True
@@ -220,6 +260,7 @@ def refresh_market_performance(db:Session,limit=40):
     db.commit();return n
 
 def refresh_all(db:Session):
+    repair_company_names(db)
     runs=[ingest_sec(db),ingest_sec_priced(db),ingest_nse(db)]
     if get_settings().secondary_enrichment_url:runs.append(ingest_secondary_enrichment(db))
     return runs

@@ -17,8 +17,15 @@ def parse_atom(xml_text:str, form:str):
         title=(entry.findtext("a:title",default="",namespaces=ns) or "").strip()
         updated=(entry.findtext("a:updated",default="",namespaces=ns) or "")[:10]
         link=entry.find("a:link",ns); url=link.attrib.get("href","") if link is not None else ""
-        m=re.search(r"^[^-]+-\s*(.*?)\s*\((\d{7,10})\)",title)
-        company=m.group(1).strip() if m else title.replace(form,"").strip(" -")
+        # EDGAR titles look like "S-1 - ACME, INC. (0001234567) (Filer)", and
+        # for amendments "S-1/A - ACME, INC. (...)". The separator is the
+        # hyphen AFTER the form name - but the form name contains one of its
+        # own ("S-1"), so the previous `^[^-]+-` stopped at that inner hyphen
+        # and left the form's numeric suffix glued to the company: every S-1
+        # became "1 - ACME, INC." and every S-11 "11 - ...". Anchor on the
+        # actual form instead, with its optional /A amendment suffix.
+        m=re.search(rf"^{re.escape(form)}(?:/[A-Z]+)?\s*-\s*(.*?)\s*\((\d{{7,10}})\)",title)
+        company=m.group(1).strip() if m else re.sub(rf"^{re.escape(form)}(?:/[A-Z]+)?","",title).strip(" -")
         cik=m.group(2).lstrip("0") if m else ""
         if company: out.append({"company":company,"cik":cik,"filing_date":updated,"filing_url":url,"form":form})
     return out
