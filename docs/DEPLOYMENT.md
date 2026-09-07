@@ -163,3 +163,85 @@ on their own.
   the Postgres password into a readable layer.
 - **Container-executed scripts must stay LF.** `.gitattributes` pins this;
   a CRLF `deploy/*.sh` fails in Alpine with a bare `\r: not found`.
+
+## 8. Deploying and rolling back
+
+One command, from the repository root on the VPS:
+
+```bash
+./scripts/deploy.sh              # deploy origin/master
+./scripts/deploy.sh <sha|tag>    # deploy a specific revision
+```
+
+It refuses to run on a dirty tree (the stack must match a revision that
+exists on GitHub), takes a **pre-migration backup and aborts if that backup
+fails**, runs migrations, restarts, and polls `/health`. If any step fails it
+returns the checkout to the previous revision and rebuilds - a failed deploy
+leaves the box on the last revision that worked, not on a half-built one.
+
+Concurrent deploys are refused rather than interleaved (`scripts/_lock.sh`).
+It prefers `flock` and falls back to an atomic `mkdir` lock where `flock` is
+absent, reclaiming a lock older than an hour as abandoned. The two cases are
+distinguished deliberately: a missing `flock` reported as "another deploy is
+running" would be a misleading message on every single deploy.
+
+Rolling back **code**:
+
+```bash
+./scripts/rollback.sh --list     # recent revisions
+./scripts/rollback.sh <sha|tag>
+```
+
+### Migration rollback policy
+
+`rollback.sh` never runs `alembic downgrade` and never touches the Postgres
+volume. **Forward-fix is the default**: write a new migration that corrects
+the problem and deploy forward.
+
+The reason is that a downgrade is only as reversible as the migration was.
+An additive migration (a new nullable column, a new table) downgrades
+cleanly; one that drops or rewrites a column cannot restore the data it
+destroyed, and running the downgrade is how you turn a bad deploy into
+permanent data loss.
+
+So:
+
+- Rolling code back past an **additive** migration is safe - old code simply
+  ignores the new column. `rollback.sh` detects that the target revision has
+  fewer migrations, says so, and asks for confirmation.
+- For a **destructive** migration, do not roll back. Fix forward, and if the
+  data is already gone, restore from the pre-deploy backup that `deploy.sh`
+  took before migrating.
+- Every schema change is preceded by a backup because `deploy.sh` takes one
+  and refuses to migrate without it.
+
+## 9. Offsite backups
+
+Backups written only to the VPS do not survive the VPS. `BACKUP_OFFSITE_CMD`
+runs after each successful local backup, with the file path appended as the
+final argument:
+
+```dotenv
+BACKUP_OFFSITE_CMD=rclone copy --config /config/rclone.conf
+```
+
+It is a command hook rather than a built-in S3 client on purpose: no vendor
+lock-in, no extra dependency in the backup image, and it works with rclone,
+`aws s3 cp`, `b2`, `rsync` or `scp` alike. A failing upload logs a loud
+WARNING and never deletes or fails the local backup - but check for that
+warning, because an offsite copy that has silently never run looks exactly
+like one that works until the day you need it.
+
+Recommended destination: **Cloudflare R2** (zero egress fees, S3-compatible,
+10GB free) via rclone. Backblaze B2 is equally fine. Either needs an account,
+so neither is configured here.
+
+## 10. Uptime monitoring
+
+Point a monitor at `https://api.<your-domain>/health` - it returns 200 with a
+JSON body and touches the database, so it fails when the stack is genuinely
+broken rather than only when the host is off.
+
+Free options that need an account (so not configured here): UptimeRobot
+(50 monitors, 5-minute interval), Better Stack, or a self-hosted Uptime Kuma
+if you would rather not depend on a third party.

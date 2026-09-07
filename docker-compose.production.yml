@@ -1,5 +1,17 @@
+# Container logs are capped so they cannot fill the disk. Docker's default
+# json-file driver has NO size limit: the worker alone logs every cycle
+# forever, and on a small VPS that ends as a full root filesystem, which takes
+# Postgres down with it. 10MB x 3 files per service is a few hundred MB worst
+# case across the stack, and still plenty of history for an incident.
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
+    logging: *default-logging
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: ipo
@@ -28,6 +40,7 @@ services:
       db: {condition: service_healthy}
     restart: "no"
   web:
+    logging: *default-logging
     build: .
     env_file: .env
     environment:
@@ -44,6 +57,7 @@ services:
       retries: 5
     restart: unless-stopped
   worker:
+    logging: *default-logging
     build: .
     command: ["python","-m","app.worker"]
     # Default is 10s, which is not enough to finish an in-flight ingest step.
@@ -64,11 +78,14 @@ services:
   # operator has to remember to add (and to re-add on any new machine).
   # Talks to Postgres as a plain client - no docker socket, no privileges.
   backup:
+    logging: *default-logging
     image: postgres:17-alpine
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      # Optional offsite copy hook - blank means local backups only.
+      BACKUP_OFFSITE_CMD: ${BACKUP_OFFSITE_CMD:-}
     volumes:
       - ./deploy/backup_loop.sh:/usr/local/bin/backup_loop.sh:ro
       - ./backups:/backups
@@ -77,6 +94,7 @@ services:
       db: {condition: service_healthy}
     restart: unless-stopped
   caddy:
+    logging: *default-logging
     image: caddy:2.9-alpine
     environment:
       DOMAIN: ${DOMAIN:?DOMAIN is required}

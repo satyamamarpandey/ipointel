@@ -41,6 +41,26 @@ while true; do
     if pg_dump -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -Z 9 -f "${target}.partial" "$POSTGRES_DB"; then
         mv "${target}.partial" "$target"
         log "wrote $(basename "$target") ($(wc -c < "$target") bytes)"
+
+        # Optional offsite copy. A backup that lives only on the machine it
+        # backs up is not protecting you from that machine dying, which is the
+        # main thing backups are for.
+        #
+        # Deliberately a command hook rather than a built-in S3/B2 client: it
+        # commits the project to no vendor, adds no dependency to this image,
+        # and works with rclone, aws-cli, b2, rsync or scp equally. The file
+        # path is appended as the final argument. See docs/DEPLOYMENT.md.
+        if [ -n "${BACKUP_OFFSITE_CMD:-}" ]; then
+            if sh -c "$BACKUP_OFFSITE_CMD \"$target\""; then
+                log "offsite copy ok: $(basename "$target")"
+            else
+                # Local backup is still good, so this is not fatal - but it
+                # must be loud, because silent offsite failure is how you
+                # discover at restore time that nothing was ever uploaded.
+                log "WARNING offsite copy FAILED for $(basename "$target") - local copy retained"
+            fi
+        fi
+
         # Prune only after a confirmed good backup, so a run of failures can
         # never age out the last known-good dump.
         find "$BACKUP_DIR" -name 'ipo_*.sql.gz' -type f -mtime "+${BACKUP_KEEP_DAYS}" -delete

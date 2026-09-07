@@ -82,3 +82,51 @@ def test_dockerignore_excludes_real_secrets_and_local_data():
     }
     for required in (".env", ".env.*", "data/*.db", "data/*.db.*", "backups"):
         assert required in patterns, f".dockerignore is missing {required!r}"
+
+
+# ---- log rotation --------------------------------------------------------
+
+def test_long_running_services_cap_their_logs():
+    """Docker's default json-file driver has no size limit. The worker logs
+    every cycle forever, and on a small VPS an unbounded log ends as a full
+    root filesystem, which takes Postgres down with it."""
+    text = (ROOT / "docker-compose.production.yml").read_text(encoding="utf-8")
+    assert "max-size" in text and "max-file" in text, "no log rotation configured"
+    for service in ("db", "web", "worker", "backup", "caddy"):
+        block = _service_block("docker-compose.production.yml", service)
+        assert "logging:" in block, f"{service} has uncapped logs"
+
+
+# ---- deploy tooling ------------------------------------------------------
+
+def test_deploy_and_rollback_scripts_exist_and_are_locked():
+    """Section 43/46: one repeatable command, and concurrent runs refused
+    rather than interleaved."""
+    for name in ("deploy.sh", "rollback.sh", "_lock.sh"):
+        assert (ROOT / "scripts" / name).exists(), f"scripts/{name} missing"
+    for name in ("deploy.sh", "rollback.sh"):
+        body = (ROOT / "scripts" / name).read_text(encoding="utf-8")
+        assert "acquire_deploy_lock" in body, f"{name} does not take the deploy lock"
+
+
+def test_lock_helper_handles_a_missing_flock():
+    """flock is absent on some hosts. Reporting that as "another deploy is
+    running" would be a misleading message on every deploy, so the helper has
+    to distinguish the two cases and still work."""
+    body = (ROOT / "scripts" / "_lock.sh").read_text(encoding="utf-8")
+    assert "command -v flock" in body
+    assert "mkdir" in body, "no portable fallback when flock is unavailable"
+
+
+def test_deploy_refuses_to_migrate_without_a_backup():
+    """A migration is the one step that is not trivially reversible."""
+    body = (ROOT / "scripts" / "deploy.sh").read_text(encoding="utf-8")
+    assert "pre-migration backup failed - refusing to migrate" in body
+
+
+def test_rollback_never_downgrades_the_schema():
+    """Downgrading a destructive migration cannot restore what it dropped -
+    forward-fix is the documented policy."""
+    body = (ROOT / "scripts" / "rollback.sh").read_text(encoding="utf-8")
+    assert "downgrade" not in body.replace("does not downgrade", "").replace(
+        "no Alembic downgrade is run", ""), "rollback.sh appears to run a downgrade"
