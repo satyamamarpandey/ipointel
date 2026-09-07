@@ -98,24 +98,48 @@ docker compose -f docker-compose.production.yml up -d --build
 
 ## 5. Backups
 
-`deploy/backup_postgres.sh` dumps the database and prunes dumps older than 14
-days. Nothing schedules it - add a cron entry on the VPS:
+Backups run inside the stack as the `backup` service - there is no crontab to
+add, and a stack moved to a new machine keeps backing itself up from the first
+`up`. It connects to Postgres as an ordinary client (no docker socket, no
+privileges) and writes to `./backups` on the host. Daily, keeping 14 days;
+both are tunable with `BACKUP_INTERVAL_SECONDS` and `BACKUP_KEEP_DAYS`.
 
-```cron
-17 3 * * * cd /path/to/ipointel && ./deploy/backup_postgres.sh >> /var/log/ipo-backup.log 2>&1
+```bash
+docker compose -f docker-compose.production.yml logs backup   # confirm it is writing
+ls -lh backups/
 ```
+
+`deploy/backup_postgres.sh` still exists for an on-demand dump before a risky
+migration.
+
+Both write to `.partial` and rename only on success, and prune only after a
+confirmed good dump - so an interrupted dump never lands under the real name,
+and a run of failures can never age out the last known-good backup.
 
 Restore:
 
 ```bash
-gunzip -c backups/ipo_<stamp>.sql.gz | \
-  docker compose -f docker-compose.production.yml exec -T db psql -U ipo ipo
+gunzip -c backups/ipo_<stamp>.sql.gz \
+  | docker compose -f docker-compose.production.yml exec -T db psql -U ipo ipo
 ```
 
-Verify a restore into a scratch database at least once - an unverified backup
-is not a backup.
+**Verify a restore into a scratch database at least once.** An unverified
+backup is not a backup - this is the one item on this page that cannot be
+checked by a test.
 
-## 6. Things that will bite you
+## 6. Health endpoints
+
+| Endpoint | Touches the DB | Use for |
+|---|---|---|
+| `/health` | yes | the compose healthcheck (unchanged) |
+| `/health/live` | no | liveness - "is this process serving at all" |
+| `/health/ready` | yes | readiness - "should this instance get traffic" |
+
+Liveness deliberately ignores the database: a database blip must not convince
+an orchestrator to restart web containers that are working and would recover
+on their own.
+
+## 7. Things that will bite you
 
 - **Do not publish a port on `web`.** The Dockerfile runs uvicorn with
   `--forwarded-allow-ips "*"`, which is only safe because Caddy is the sole
@@ -124,13 +148,18 @@ is not a backup.
   not that), every request reports Caddy's IP, and all three rate limiters -
   sign-in 5/10min, signup 6/min, events 60/min - collapse into one bucket
   shared by every visitor. `tests/test_deploy_config.py` guards both halves.
-- **Rate limits are per-process and in-memory.** They reset on restart and do
-  not coordinate across replicas. Running uvicorn with `--workers > 1` or
-  scaling `web` divides every limit by the number of processes; that needs a
-  shared store (Redis) first.
-- **`/api/docs` is public.** FastAPI's Swagger UI is served at `/api/docs`
-  with no auth. Fine for a documented API, but it does enumerate every route -
-  set `docs_url=None` in `app/main.py` if you would rather it not.
+- **Rate limits are per-process and in-memory.** Bounded now (expiry plus an
+  LRU ceiling), so they cannot grow without limit, but they still reset on
+  restart and do not coordinate across processes. Running uvicorn with
+  `--workers > 1` or scaling `web` divides every limit by the number of
+  processes; that needs a shared store (Redis) first.
+- **The schema comes only from Alembic here.** `init_db()` is a no-op under
+  `APP_ENV=production`, so any model change needs a committed migration or
+  the column simply will not exist in production.
+- **`/api/docs` is off in production** unless `ENABLE_API_DOCS=true`. It
+  enumerates every route, admin included.
 - **Secrets never enter the image.** `.dockerignore` excludes `.env*`, local
   databases and `backups/`; `COPY . .` would otherwise bake `ADMIN_TOKEN` and
   the Postgres password into a readable layer.
+- **Container-executed scripts must stay LF.** `.gitattributes` pins this;
+  a CRLF `deploy/*.sh` fails in Alpine with a bare `\r: not found`.
