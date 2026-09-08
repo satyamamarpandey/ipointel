@@ -19,6 +19,31 @@ this stack is the API/dashboard backend and wants its **own hostname**, e.g.
   *before* the first `up`. Caddy provisions its certificate on boot and will
   fail the ACME challenge if DNS is not live yet.
 
+### Host bootstrap
+
+`scripts/bootstrap-vps.sh` does the host half of this on a fresh Ubuntu box
+(amd64 or arm64) and is safe to re-run:
+
+```bash
+ssh you@your-vps
+curl -fsSL https://raw.githubusercontent.com/satyamamarpandey/ipointel/master/scripts/bootstrap-vps.sh | bash
+exit   # then ssh back in, so docker group membership applies
+```
+
+It installs Docker from the official repo, sets UTC + time sync, opens only
+22/80/443, and clones the repo to `/opt/ipointel` owned by your login user.
+
+Two things it deliberately leaves to you:
+
+- **sshd is not touched.** A script cannot check that key login works from a
+  second session before turning passwords off, and getting that wrong locks
+  you out. It prints the one-liner and the ordering instead.
+- **On Oracle Cloud** it also inserts iptables ACCEPT rules above the REJECT
+  rule those images ship with. That rule blocks 80/443 regardless of the VCN
+  security list, and the only symptom is an ACME challenge that times out with
+  no error on either side. If you open the ports in the VCN and TLS still
+  never provisions, this is why.
+
 ## 2. Environment file
 
 Compose reads **one** file: `.env` in the project directory. It serves two

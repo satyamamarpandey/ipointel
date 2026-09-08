@@ -10,7 +10,10 @@ pulled in transitively, so importing it would pass locally and ImportError in
 CI. The checks below only need to read a named service's block.
 """
 import re
+import subprocess
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -130,6 +133,79 @@ def test_rollback_never_downgrades_the_schema():
     body = (ROOT / "scripts" / "rollback.sh").read_text(encoding="utf-8")
     assert "downgrade" not in body.replace("does not downgrade", "").replace(
         "no Alembic downgrade is run", ""), "rollback.sh appears to run a downgrade"
+
+
+def _executable_lines(script: str) -> str:
+    """Shell source with heredoc bodies removed, so "does the script DO x"
+    is not confused by a heredoc that merely prints x as an instruction."""
+    body = (ROOT / "scripts" / script).read_text(encoding="utf-8")
+    out, terminator = [], None
+    for line in body.splitlines():
+        if terminator is not None:
+            if line.strip() == terminator:
+                terminator = None
+            continue
+        m = re.search(r"<<-?\s*'?([A-Za-z_][A-Za-z0-9_]*)'?\s*$", line)
+        if m:
+            terminator = m.group(1)
+            continue
+        out.append(line)
+    assert terminator is None, f"unterminated heredoc <<{terminator} in {script}"
+    return "\n".join(out)
+
+
+def test_bootstrap_opens_only_the_three_public_ports():
+    """Section 5: 22/80/443 and nothing else. Postgres is reachable only on
+    the internal compose network; a host rule opening 5432 would expose it
+    directly, since the db container listens on all interfaces inside it."""
+    opened = set(re.findall(r"(?:allow|--dport)\s+(\d+)", _executable_lines("bootstrap-vps.sh")))
+    assert opened == {"22", "80", "443"}, f"unexpected ports opened: {sorted(opened)}"
+
+
+def test_bootstrap_never_edits_sshd_config():
+    """Section 4 said "do not lock me out". A script cannot verify that key
+    login works from a second session before disabling passwords, so it must
+    only report the current state - the sed command may appear inside the
+    printed instructions, but never be executed."""
+    executed = [
+        ln for ln in _executable_lines("bootstrap-vps.sh").splitlines()
+        if "sshd_config" in ln and not ln.lstrip().startswith("#")
+    ]
+    assert not executed, f"bootstrap modifies sshd_config: {executed}"
+
+
+def test_bootstrap_handles_the_oracle_reject_rule():
+    """Oracle's Ubuntu images persist an INPUT chain ending in REJECT that
+    drops 80/443 even when the VCN security list allows them. ufw alone does
+    not help; the symptom is an ACME challenge that times out silently."""
+    body = (ROOT / "scripts" / "bootstrap-vps.sh").read_text(encoding="utf-8")
+    assert "iptables -I INPUT" in body, "no workaround for the image REJECT rule"
+    assert "iptables -C INPUT" in body, "rules are not checked before inserting - not idempotent"
+
+
+def test_directly_invoked_scripts_are_executable_in_the_index():
+    """docs/DEPLOYMENT.md tells you to run `./scripts/deploy.sh` on the VPS.
+    The file mode that matters is the one recorded in git, not the one on the
+    checkout - these are authored on Windows, where the filesystem bit is
+    meaningless, so a script committed as 100644 clones onto Linux without +x
+    and fails with "permission denied" at the one moment you need it.
+
+    Not asserted for _lock.sh (sourced) or deploy/*.sh (compose runs them as
+    `/bin/sh <path>`, which ignores the mode)."""
+    proc = subprocess.run(
+        ["git", "ls-files", "-s", "run_local.sh", "scripts/"],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        pytest.skip("not a git checkout")
+    modes = {
+        line.split("\t", 1)[1]: line.split(maxsplit=1)[0]
+        for line in proc.stdout.splitlines() if line.strip()
+    }
+    for script in ("scripts/deploy.sh", "scripts/rollback.sh", "scripts/bootstrap-vps.sh"):
+        assert modes.get(script) == "100755", (
+            f"{script} is committed as {modes.get(script)} - it will not be executable after a clone"
+        )
 
 
 def test_every_postgres_reference_uses_the_same_configured_name_and_user():
