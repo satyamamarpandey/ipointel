@@ -166,7 +166,7 @@
 
   // ---------- hero product preview + upcoming strip (real data, honestly labeled) ----------
   const REDUCE_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const valuationTag = v => v || 'PENDING';
+  const valuationTag = v => { if (!v) return 'Pending'; const s = String(v); return s.charAt(0) + s.slice(1).toLowerCase(); };
   const DIM_LABEL = { overall: 'Overall', listing: 'Listing', long_term: 'Long term' };
   let currentIpo = null, currentLive = false, currentDim = 'overall';
 
@@ -223,7 +223,7 @@
     currentIpo = ipo; currentLive = live;
     document.getElementById('pcLabel').textContent = live ? 'Live coverage' : 'Illustrative analysis';
     document.getElementById('pcCompany').textContent = ipo.company;
-    document.getElementById('pcTag').textContent = live ? ipo.country : 'SAMPLE';
+    document.getElementById('pcTag').textContent = live ? ipo.country : 'Illustrative';
     if (firstRender) {
       [['pcOverall', ipo.overall], ['pcListing', ipo.listing], ['pcLongTerm', ipo.long_term]]
         .forEach(([id, val]) => countUp(document.getElementById(id), val));
@@ -244,17 +244,37 @@
     renderDimension();
   }));
 
+  // ---------- upcoming IPO discovery terminal ----------
+  const TERMINAL_EMPTY = row => `<tr><td colspan="8"><div class="stripempty">${row}</div></td></tr>`;
+  const statusClass = s => {
+    const v = String(s || '').toLowerCase();
+    if (v.indexOf('open') === 0) return 'open';
+    if (v.indexOf('list') === 0) return 'listed';
+    if (v.indexOf('clos') === 0) return 'closed';
+    return 'upcoming';
+  };
+  // A score band: the figure plus a short rule whose length encodes it.
+  // Absent values render as a dash, never as a guess.
+  function band(value, kind) {
+    if (value == null || value === '') return '<span class="muted">&ndash;</span>';
+    const w = Math.max(0, Math.min(100, Number(value)));
+    return `<span class="scoreband ${kind}"><span class="v">${value}</span><span class="band"><i style="width:${w}%"></i></span></span>`;
+  }
   function renderStrip(list) {
-    const el = document.getElementById('ipoStrip');
-    if (!list.length) { el.innerHTML = '<div class="stripempty">No open coverage right now — check back soon.</div>'; return; }
-    el.innerHTML = list.map(ipo => `
-      <div class="stripcard">
-        <div class="country">${ipo.country} · ${ipo.status}</div>
-        <h4>${ipo.company}</h4>
-        <div class="striprow"><span>Overall</span><b>${ipo.overall}</b></div>
-        <div class="striprow"><span>Listing / Long term</span><b>${ipo.listing} / ${ipo.long_term}</b></div>
-        <div class="striprow"><span>Valuation</span><b>${valuationTag(ipo.valuation)}</b></div>
-      </div>`).join('');
+    const body = document.getElementById('ipoRowsPublic');
+    if (!body) return;
+    if (!list.length) { body.innerHTML = TERMINAL_EMPTY('No open coverage right now. Check back soon.'); return; }
+    body.innerHTML = list.map(ipo => `
+      <tr>
+        <td class="issuercell"><span class="issuer">${ipo.company}</span><span class="sub">${ipo.symbol || ipo.sector || 'Ticker pending'}</span></td>
+        <td data-label="Market">${ipo.country === 'India' ? 'India' : 'U.S.'}</td>
+        <td data-label="Status"><span class="stat ${statusClass(ipo.status)}">${ipo.status}</span></td>
+        <td data-label="Overall" class="n">${band(ipo.overall, '')}</td>
+        <td data-label="Listing" class="n">${band(ipo.listing, 'ev')}</td>
+        <td data-label="Long term" class="n">${band(ipo.long_term, 'lt')}</td>
+        <td data-label="Valuation">${valuationTag(ipo.valuation)}</td>
+        <td data-label="Confidence" class="n">${ipo.confidence == null ? '<span class="muted">&ndash;</span>' : ipo.confidence + '%'}</td>
+      </tr>`).join('');
   }
 
   function renderTicker(list) {
@@ -280,7 +300,8 @@
       renderPreview({ company: 'Example Manufacturing Ltd.', country: 'India', overall: 82, listing: 76, long_term: 88, confidence: 91, valuation: 'FAIR' }, false);
     }
   }).catch(() => {
-    document.getElementById('ipoStrip').innerHTML = '<div class="stripempty">Coverage temporarily unavailable.</div>';
+    const body = document.getElementById('ipoRowsPublic');
+    if (body) body.innerHTML = TERMINAL_EMPTY('Coverage temporarily unavailable.');
     const overlay = document.getElementById('tickerTrack');
     if (overlay) overlay.parentElement.hidden = true;
     renderPreview({ company: 'Example Manufacturing Ltd.', country: 'India', overall: 82, listing: 76, long_term: 88, confidence: 91, valuation: 'FAIR' }, false);

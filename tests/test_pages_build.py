@@ -227,7 +227,7 @@ def test_landing_page_ships_valid_structured_data(build_dist):
     block = html.split('<script type="application/ld+json">')[1].split("</script>")[0]
     data = json.loads(block)
     assert data["@type"] == "SoftwareApplication"
-    assert data["name"] == "IPO Intelligence Terminal"
+    assert data["name"] == "IPOIntel"
     assert data["url"] == "https://ipointel.brandsap.com/"
     assert data["founder"]["name"] == "Satyam Pandey"
     assert data["founder"]["@id"] == "https://pandeysatyam.com/#person"

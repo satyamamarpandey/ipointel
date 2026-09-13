@@ -1,1 +1,272 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IPO Intelligence Terminal</title><meta name="description" content="The IPO Intelligence terminal: IPO radar, event calendar, side-by-side comparison, listed-IPO performance, source reliability and model track record for India and U.S. IPOs."><link rel="canonical" href="https://ipointel.brandsap.com/dashboard/"><link rel="manifest" href="/static/site.webmanifest"><link rel="icon" href="/static/favicon.ico" sizes="any"><link rel="icon" type="image/svg+xml" href="/static/brand/favicon.svg"><link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png"><link rel="stylesheet" href="/static/styles.css"></head><body><header class="appnav"><div class="container"><nav class="nav" style="display:flex;align-items:center;justify-content:space-between;padding:16px 0 10px"><a class="navbrand" href="/"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true" width="26" height="26"><path d="M11 6H7.6C7.05 6 6.6 6.45 6.6 7V25C6.6 25.55 7.05 26 7.6 26H11" stroke="#7ea8ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 6H24.4C24.95 6 25.4 6.45 25.4 7V25C25.4 25.55 24.95 26 24.4 26H21" stroke="#7ea8ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><rect x="14" y="12" width="4" height="8" rx="1.4" fill="#72e6c2"/></svg><b>IPO<span>Intelligence</span></b></a><div class="statusbar" style="margin:0"><span class="pill"><span class="dot"></span><span id="liveText">Live data monitor</span></span><button id="refreshBtn" class="btn ghost" type="button">Refresh view</button></div></nav><div class="tabs" role="tablist"><button class="tab active" data-view="radar">IPO Radar</button><button class="tab" data-view="calendar">Calendar</button><button class="tab" data-view="compare">Compare</button><button class="tab" data-view="history">Past Performance</button><button class="tab" data-view="reliability">Reliability</button><button class="tab" data-view="trackrecord">Model Track Record</button><button class="tab" data-view="modelperf">Model Performance</button></div></div></header><main class="container appmain"><div id="globalNotice" class="notice" style="display:none"></div><section id="radar" class="view active"><div class="metricgrid"><div class="metric"><span>Tracked IPOs</span><b id="mTotal">—</b></div><div class="metric"><span>Upcoming / filed</span><b id="mActive">—</b></div><div class="metric"><span>Listed history</span><b id="mListed">—</b></div><div class="metric"><span>High-confidence scores</span><b id="mConf">—</b></div><div class="metric"><span>Reliability gate</span><b id="mGate">—</b></div></div><div class="toolbar"><input id="search" placeholder="Search company or ticker"><select id="country"><option value="all">India + U.S.</option><option value="India">India</option><option value="United States">United States</option></select><select id="status"><option value="all">All stages</option><option value="Upcoming">Upcoming</option><option value="Open">Open</option><option value="Filed">Filed</option><option value="Listed">Listed</option></select><select id="sort"><option value="updated">Most recently updated</option><option value="overall">Highest overall score</option><option value="listing">Best listing setup</option><option value="long">Best long-term setup</option><option value="confidence">Highest confidence</option></select></div><div class="split"><div class="panel"><div class="panelhead"><h3>Upcoming & active IPO radar</h3><span class="pill" id="countPill">0 issues</span></div><div class="tablewrap"><table class="table"><thead><tr><th>Company</th><th>Market</th><th>Stage</th><th>Price</th><th>Overall</th><th>Listing</th><th>Long term</th><th>Confidence</th><th>Verdict</th></tr></thead><tbody id="ipoRows"></tbody></table></div></div><aside class="panel"><div class="panelhead"><h3>Evidence-first detail</h3><span class="tier">click an IPO</span></div><div id="detail" class="detail"><div class="empty">Select an IPO to inspect its scores, risks and source evidence.</div></div></aside></div></section><section id="calendar" class="view"><div class="panel"><div class="panelhead"><h3>IPO event calendar</h3><span class="pill">filing · open · close · listing</span></div><div id="calendarEvents" class="detail"></div></div></section><section id="compare" class="view"><div class="panel"><div class="panelhead"><h3>Side-by-side IPO comparison</h3><span class="pill">up to 3 issues</span></div><div class="detail"><div class="toolbar"><select id="cmp1"></select><select id="cmp2"></select><select id="cmp3"></select><button id="compareBtn" class="btn" type="button">Compare</button></div><div id="compareGrid" class="featuregrid"></div></div></div></section><section id="history" class="view"><div class="grid2"><div class="panel"><div class="panelhead"><h3>Listed IPO performance</h3><span class="pill">actual vs issue price</span></div><div class="tablewrap"><table class="table"><thead><tr><th>Company</th><th>Market</th><th>IPO price</th><th>Latest</th><th>Return</th><th>Original score</th><th>Confidence</th></tr></thead><tbody id="perfRows"></tbody></table></div></div><div class="panel"><div class="panelhead"><h3>Return distribution</h3></div><div class="chart" id="returnChart"></div></div></div></section><section id="reliability" class="view"><div class="grid2"><div class="panel"><div class="panelhead"><h3>Primary-source health</h3><span class="pill">Tier 1 preferred</span></div><div id="sourceHealth"></div></div><div class="panel"><div class="panelhead"><h3>Reliability rules</h3></div><div class="detail"><p><b>No evidence, no recommendation.</b></p><p class="muted">The actionable verdict is suppressed when confidence is below the configured threshold. Primary filings/exchange data are Tier 1. Secondary price feeds are clearly marked and never override a conflicting primary filing.</p><div class="notice">“100% accurate” is not a credible promise for future investment outcomes. This terminal instead targets 100% traceability of the evidence used for each score and refuses to recommend when verified data is insufficient.</div></div></div></div></section><section id="trackrecord" class="view"><div class="grid2"><div class="panel"><div class="panelhead"><h3>Walk-forward calibration status</h3></div><div class="detail" id="backtest"></div></div><div class="panel"><div class="panelhead"><h3>How to read it</h3></div><div class="detail muted"><p><b>Brier score</b> measures probability calibration; lower is better. It is only reported when realized listing outcomes exist.</p><p><b>Top-decile return</b> is the observed average listing return of the highest-scoring historical group in the local dataset.</p><p>The UI intentionally labels small samples as insufficient rather than presenting unstable accuracy claims.</p></div></div></div><div class="panel" style="margin-top:16px"><div class="panelhead"><h3>Live forward track record</h3><span class="pill">immutable — never rewritten</span></div><div class="detail" id="forwardrecord"></div></div></section><section id="modelperf" class="view"><div class="panel"><div class="panelhead"><h3>Model performance by country and horizon</h3><span class="pill">out-of-sample by construction — fixed-weight model, no fitting to this data</span></div><div id="modelPerf" class="detail"><div class="empty">Loading…</div></div></div></section></main><script src="/static/pages-config.js"></script><script src="/static/pages-adapter.js"></script><script src="/static/app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Terminal · IPOIntel</title>
+<meta name="description" content="The IPOIntel terminal: IPO radar, event calendar, side-by-side comparison, listed-IPO performance, source reliability and model track record for India and U.S. IPOs.">
+<link rel="canonical" href="https://ipointel.brandsap.com/dashboard/">
+<meta name="theme-color" content="#0a1016">
+<link rel="manifest" href="/static/site.webmanifest">
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<link rel="icon" type="image/svg+xml" href="/static/brand/favicon.svg">
+<link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="app">
+<a class="skip-link" href="#terminal">Skip to content</a>
+
+<header class="appnav">
+  <div class="container">
+    <div class="appnavtop">
+      <a class="navbrand" href="/">
+        <svg viewBox="0 0 32 32" fill="none" aria-hidden="true" width="26" height="26">
+          <path d="M11 6H7.6C7.05 6 6.6 6.45 6.6 7V25C6.6 25.55 7.05 26 7.6 26H11" stroke="#8fb2ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M21 6H24.4C24.95 6 25.4 6.45 25.4 7V25C25.4 25.55 24.95 26 24.4 26H21" stroke="#8fb2ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+          <rect x="14" y="12" width="4" height="8" rx="1.4" fill="#72e6c2"/>
+        </svg>
+        <b>IPO<span>Intel</span></b>
+      </a>
+      <span class="pill"><span class="dot"></span><span id="liveText">Live data monitor</span></span>
+      <nav class="appnavlinks" aria-label="Site">
+        <a href="/">Home</a>
+        <a href="/#truth-engine">Methodology</a>
+        <a href="/#early-access">Early access</a>
+        <button id="refreshBtn" class="btn sm" type="button">Refresh</button>
+      </nav>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Terminal sections">
+      <button class="tab active" data-view="radar" role="tab" aria-selected="true">IPO radar</button>
+      <button class="tab" data-view="calendar" role="tab" aria-selected="false">Calendar</button>
+      <button class="tab" data-view="compare" role="tab" aria-selected="false">Compare</button>
+      <button class="tab" data-view="history" role="tab" aria-selected="false">Past performance</button>
+      <button class="tab" data-view="reliability" role="tab" aria-selected="false">Reliability</button>
+      <button class="tab" data-view="trackrecord" role="tab" aria-selected="false">Track record</button>
+      <button class="tab" data-view="modelperf" role="tab" aria-selected="false">Model performance</button>
+    </div>
+  </div>
+</header>
+
+<main class="container appmain" id="terminal">
+  <div id="globalNotice" class="notice" style="display:none"></div>
+
+  <!-- ============ RADAR ============ -->
+  <section id="radar" class="view active" aria-label="IPO radar">
+    <div class="metricgrid">
+      <div class="metric"><span>Tracked IPOs</span><b id="mTotal">&ndash;</b></div>
+      <div class="metric"><span>Upcoming or filed</span><b id="mActive">&ndash;</b></div>
+      <div class="metric"><span>Listed history</span><b id="mListed">&ndash;</b></div>
+      <div class="metric"><span>High-confidence scores</span><b id="mConf">&ndash;</b></div>
+      <div class="metric"><span>Reliability gate</span><b id="mGate">&ndash;</b></div>
+    </div>
+
+    <div class="toolbar">
+      <input id="search" placeholder="Search company or ticker" aria-label="Search company or ticker">
+      <select id="country" aria-label="Market">
+        <option value="all">India and U.S.</option>
+        <option value="India">India</option>
+        <option value="United States">United States</option>
+      </select>
+      <select id="status" aria-label="Stage">
+        <option value="all">All stages</option>
+        <option value="Upcoming">Upcoming</option>
+        <option value="Open">Open</option>
+        <option value="Filed">Filed</option>
+        <option value="Listed">Listed</option>
+      </select>
+      <select id="sort" aria-label="Sort by">
+        <option value="updated">Most recently updated</option>
+        <option value="overall">Highest overall score</option>
+        <option value="listing">Best listing setup</option>
+        <option value="long">Best long-term setup</option>
+        <option value="confidence">Highest confidence</option>
+      </select>
+    </div>
+
+    <div class="split">
+      <div class="panel">
+        <div class="panelhead">
+          <h3>Upcoming and active radar</h3>
+          <span class="pill" id="countPill">0 issues</span>
+        </div>
+        <div class="tablewrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">Company</th>
+                <th scope="col">Market</th>
+                <th scope="col">Stage</th>
+                <th scope="col">Price band</th>
+                <th scope="col">Overall</th>
+                <th scope="col">Listing</th>
+                <th scope="col">Long term</th>
+                <th scope="col">Confidence</th>
+                <th scope="col">Verdict</th>
+              </tr>
+            </thead>
+            <tbody id="ipoRows"></tbody>
+          </table>
+        </div>
+      </div>
+      <aside class="panel">
+        <div class="panelhead">
+          <h3>Evidence-first detail</h3>
+          <span class="tier">Select a row</span>
+        </div>
+        <div id="detail" class="detail">
+          <div class="empty">Select an IPO to inspect its scores, risks and source evidence.</div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============ CALENDAR ============ -->
+  <section id="calendar" class="view" aria-label="IPO event calendar">
+    <div class="panel">
+      <div class="panelhead">
+        <h3>IPO event calendar</h3>
+        <span class="pill">Filing, open, close, listing</span>
+      </div>
+      <div id="calendarEvents" class="detail"></div>
+    </div>
+  </section>
+
+  <!-- ============ COMPARE ============ -->
+  <section id="compare" class="view" aria-label="Side-by-side comparison">
+    <div class="panel">
+      <div class="panelhead">
+        <h3>Side-by-side comparison</h3>
+        <span class="pill">Up to 3 issues</span>
+      </div>
+      <div class="detail">
+        <div class="toolbar">
+          <select id="cmp1" aria-label="First IPO"></select>
+          <select id="cmp2" aria-label="Second IPO"></select>
+          <select id="cmp3" aria-label="Third IPO"></select>
+          <button id="compareBtn" class="btn" type="button">Compare</button>
+        </div>
+        <div id="compareGrid" class="featuregrid"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ HISTORY ============ -->
+  <section id="history" class="view" aria-label="Listed IPO performance">
+    <div class="grid2">
+      <div class="panel">
+        <div class="panelhead">
+          <h3>Listed IPO performance</h3>
+          <span class="pill">Actual against issue price</span>
+        </div>
+        <div class="tablewrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">Company</th>
+                <th scope="col">Market</th>
+                <th scope="col">IPO price</th>
+                <th scope="col">Latest</th>
+                <th scope="col">Return</th>
+                <th scope="col">Original score</th>
+                <th scope="col">Confidence</th>
+              </tr>
+            </thead>
+            <tbody id="perfRows"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panelhead"><h3>Return distribution</h3></div>
+        <div class="chart" id="returnChart"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ RELIABILITY ============ -->
+  <section id="reliability" class="view" aria-label="Source reliability">
+    <div class="grid2">
+      <div class="panel">
+        <div class="panelhead">
+          <h3>Primary-source health</h3>
+          <span class="pill">Tier 1 preferred</span>
+        </div>
+        <div id="sourceHealth"></div>
+      </div>
+      <div class="panel">
+        <div class="panelhead"><h3>Reliability rules</h3></div>
+        <div class="detail">
+          <p><b>No evidence, no recommendation.</b></p>
+          <p class="muted">The actionable verdict is suppressed when confidence sits below the configured threshold. Primary filings and exchange data are Tier 1. Secondary price feeds are clearly marked and never override a conflicting primary filing.</p>
+          <div class="notice">A claim of total accuracy is not credible for future investment outcomes. This terminal targets full traceability of the evidence behind each score, and refuses to recommend when verified data is insufficient.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TRACK RECORD ============ -->
+  <section id="trackrecord" class="view" aria-label="Model track record">
+    <div class="grid2">
+      <div class="panel">
+        <div class="panelhead"><h3>Walk-forward calibration status</h3></div>
+        <div class="detail" id="backtest"></div>
+      </div>
+      <div class="panel">
+        <div class="panelhead"><h3>How to read it</h3></div>
+        <div class="detail muted">
+          <p><b>Brier score</b> measures probability calibration, where lower is better. It is only reported when realized listing outcomes exist.</p>
+          <p><b>Top-decile return</b> is the observed average listing return of the highest-scoring historical group in the local dataset.</p>
+          <p>Small samples are labelled insufficient rather than presented as stable accuracy claims.</p>
+        </div>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:20px">
+      <div class="panelhead">
+        <h3>Live forward track record</h3>
+        <span class="pill">Immutable, never rewritten</span>
+      </div>
+      <div class="detail" id="forwardrecord"></div>
+    </div>
+  </section>
+
+  <!-- ============ MODEL PERFORMANCE ============ -->
+  <section id="modelperf" class="view" aria-label="Model performance">
+    <div class="panel">
+      <div class="panelhead">
+        <h3>Model performance by market and horizon</h3>
+        <span class="pill">Out of sample by construction</span>
+      </div>
+      <div id="modelPerf" class="detail">
+        <div class="empty">Loading</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footbrand">
+      <p class="tiny" style="margin:0">IPOIntel terminal. Research and decision support only. Not investment advice. No guaranteed outcomes.</p>
+    </div>
+    <div class="footcol">
+      <h4>Product</h4>
+      <a href="/">Home</a>
+      <a href="/#truth-engine">Methodology</a>
+      <a href="/#track-record">Track record</a>
+    </div>
+    <div class="footcol">
+      <h4>Company</h4>
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+      <a href="https://brandsap.com" target="_blank" rel="noopener noreferrer">Brandsap</a>
+    </div>
+  </div>
+</footer>
+
+<script src="/static/pages-config.js"></script>
+<script src="/static/pages-adapter.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

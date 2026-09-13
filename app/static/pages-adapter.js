@@ -33,7 +33,7 @@
     countPill.insertAdjacentElement('afterend', note);
     fetch(DATA + 'manifest.json').then(r => r.json()).then(m => {
       const fmt = d => new Date(d).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-      note.textContent = `Past 5 Years · ${fmt(m.history_window_start)} – ${fmt(m.history_window_end)}`;
+      note.textContent = `Past 5 years: ${fmt(m.history_window_start)} to ${fmt(m.history_window_end)}`;
       const sync = () => { note.style.display = statusSelect.value === 'Listed' ? '' : 'none'; };
       statusSelect.addEventListener('change', sync);
       sync();
@@ -108,7 +108,7 @@
     if (!endpoint) {
       // Honest configuration state, never a fake success message (see
       // spec: "DO NOT show a fake success message" if the endpoint is unset).
-      return json({ detail: "Early access isn't wired up in this preview build yet - the Google Apps Script endpoint hasn't been deployed. See docs/GITHUB_PAGES.md." }, 501);
+      return json({ detail: "Early access is not wired up in this preview build yet: the Google Apps Script endpoint has not been deployed. See docs/GITHUB_PAGES.md." }, 501);
     }
     try {
       const r = await realFetch(endpoint, { method: 'POST', body: init && init.body, headers: { 'Content-Type': 'text/plain;charset=utf-8' } });

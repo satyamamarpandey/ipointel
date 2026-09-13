@@ -4,7 +4,7 @@
   if (err) {
     const label = {
       invalid_token: 'That sign-in link is invalid.', already_used: 'That sign-in link was already used.',
-      expired: 'That sign-in link expired - request a new one below.', disabled: 'This account has been disabled.',
+      expired: 'That sign-in link expired. Request a new one below.', disabled: 'This account has been disabled.',
       revoked: 'That sign-in link was revoked.',
     }[err] || 'Could not sign you in with that link.';
     msg.textContent = label;
@@ -65,7 +65,7 @@
       await window.Clerk.client.signIn.authenticateWithRedirect({
         strategy, redirectUrl: location.origin + '/login', redirectUrlComplete: location.origin + '/login',
       });
-    } catch (e) { msg.textContent = 'Could not start sign-in - try again.'; }
+    } catch (e) { msg.textContent = 'Could not start sign-in. Please try again.'; }
   }
 
   async function completeClerkSignIn() {

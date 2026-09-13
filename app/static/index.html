@@ -3,36 +3,38 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>IPO Intelligence Terminal — Know the IPO before the market prices it</title>
-<meta name="description" content="Evidence-first IPO intelligence for India and the United States. Filings, valuation, institutional demand and historical evidence — with separate listing-gain and long-term signals.">
+<title>IPOIntel · Know the IPO before the market prices it</title>
+<meta name="description" content="Evidence-first IPO intelligence for India and the United States. Filings, valuation, institutional demand and historical evidence, with separate listing-gain and long-term signals.">
 <link rel="canonical" href="https://ipointel.brandsap.com/">
-<meta name="theme-color" content="#071018">
+<meta name="theme-color" content="#0a1016">
 <link rel="manifest" href="/static/site.webmanifest">
 <link rel="icon" href="/static/favicon.ico" sizes="any">
 <link rel="icon" type="image/svg+xml" href="/static/brand/favicon.svg">
 <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
 <meta property="og:type" content="website">
-<meta property="og:title" content="IPO Intelligence Terminal">
+<meta property="og:title" content="IPOIntel">
 <meta property="og:description" content="Know the IPO before the market prices it. Evidence-first IPO research for India and the United States.">
 <meta property="og:image" content="https://ipointel.brandsap.com/static/brand/og-image.png">
 <meta property="og:url" content="https://ipointel.brandsap.com/">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="IPO Intelligence Terminal">
+<meta name="twitter:title" content="IPOIntel">
 <meta name="twitter:description" content="Know the IPO before the market prices it.">
 <meta name="twitter:image" content="https://ipointel.brandsap.com/static/brand/og-image.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap">
 <link rel="stylesheet" href="/static/styles.css">
 <!-- Structured data. A JSON-LD data block, not executable script: it is inert
      under our script-src 'self' CSP (no 'unsafe-inline' needed) because the
-     type is not a JavaScript MIME type, so the browser never runs it. Name and
-     description are the same strings as <title>/<meta description> above. -->
+     type is not a JavaScript MIME type, so the browser never runs it. -->
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "@id": "https://ipointel.brandsap.com/#software",
-  "name": "IPO Intelligence Terminal",
+  "name": "IPOIntel",
   "url": "https://ipointel.brandsap.com/",
-  "description": "Evidence-first IPO intelligence for India and the United States. Filings, valuation, institutional demand and historical evidence — with separate listing-gain and long-term signals.",
+  "description": "Evidence-first IPO intelligence for India and the United States. Filings, valuation, institutional demand and historical evidence, with separate listing-gain and long-term signals.",
   "applicationCategory": "FinanceApplication",
   "applicationSubCategory": "Investment research",
   "operatingSystem": "Any (web browser)",
@@ -66,33 +68,33 @@
   <div class="container">
     <a class="navbrand" href="/">
       <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
-        <path d="M11 6H7.6C7.05 6 6.6 6.45 6.6 7V25C6.6 25.55 7.05 26 7.6 26H11" stroke="#7ea8ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M21 6H24.4C24.95 6 25.4 6.45 25.4 7V25C25.4 25.55 24.95 26 24.4 26H21" stroke="#7ea8ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M11 6H7.6C7.05 6 6.6 6.45 6.6 7V25C6.6 25.55 7.05 26 7.6 26H11" stroke="#8fb2ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M21 6H24.4C24.95 6 25.4 6.45 25.4 7V25C25.4 25.55 24.95 26 24.4 26H21" stroke="#8fb2ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
         <rect x="14" y="12" width="4" height="8" rx="1.4" fill="#72e6c2"/>
       </svg>
-      <b>IPO<span>Intelligence</span></b>
+      <b>IPO<span>Intel</span></b>
     </a>
     <div class="navlinks">
-      <a class="navlink" href="#product">Product</a>
-      <a class="navlink" href="#why">Why it's different</a>
+      <a class="navlink" href="#upcoming">Upcoming</a>
       <a class="navlink" href="#truth-engine">Methodology</a>
-      <a class="navlink" href="#track-record">Track Record</a>
+      <a class="navlink" href="#track-record">Track record</a>
+      <a class="navlink" href="/dashboard/">Dashboard</a>
     </div>
     <div class="navactions">
       <a class="btn ghost" id="navAuthLink" href="/login">Sign in</a>
       <a class="btn primary" id="navCta" href="#early-access">Join early access</a>
     </div>
-    <button class="navburger" id="navBurger" aria-label="Open menu" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 18 18"><path d="M2 4h14M2 9h14M2 14h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+    <button class="navburger" id="navBurger" aria-label="Open menu" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 4h14M2 9h14M2 14h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
   </div>
 </nav>
 <!-- Deliberately a sibling of <nav>, not a child: .sitenav is position:sticky,
      which would otherwise become this fixed-position menu's containing block
      and collapse it to the nav bar's own height instead of the viewport. -->
 <div class="mobilenav" id="mobileNav">
-  <a href="#product">Product</a>
-  <a href="#why">Why it's different</a>
+  <a href="#upcoming">Upcoming</a>
   <a href="#truth-engine">Methodology</a>
-  <a href="#track-record">Track Record</a>
+  <a href="#track-record">Track record</a>
+  <a href="/dashboard/">Dashboard</a>
   <a href="/login">Sign in</a>
   <a class="btn primary" href="#early-access">Join early access</a>
 </div>
@@ -108,17 +110,17 @@
       <div class="herotop">
         <div class="hero-copy">
           <div class="eyebrow">Evidence-first IPO intelligence</div>
-          <h1 class="display">Know the IPO<br>before the market prices it.</h1>
-          <p class="lead">Filings, fundamentals, valuation, institutional demand and historical evidence for upcoming India and U.S. IPOs — with separate <strong>listing-gain</strong> and <strong>long-term investment</strong> signals. <strong>No evidence, no recommendation.</strong></p>
+          <h1 class="display">Know the IPO<br>before the market <em>prices it.</em></h1>
+          <p class="lead">Filings, fundamentals, valuation, institutional demand and historical evidence for upcoming India and U.S. IPOs, with separate <strong>listing-gain</strong> and <strong>long-term</strong> signals. <strong>No evidence, no recommendation.</strong></p>
           <div class="herobtns">
-            <a class="btn primary lg" href="#early-access" data-track="early_access_started">Join early access <span class="arrow">→</span></a>
-            <a class="btn ghost lg" href="#truth-engine">Explore the methodology</a>
+            <a class="btn primary lg" href="#early-access" data-track="early_access_started">Join early access <span class="arrow">&rarr;</span></a>
+            <a class="btn ghost lg" href="#truth-engine">Read the methodology</a>
           </div>
         </div>
         <aside class="heroproof" aria-label="Coverage highlights">
           <div class="proof">
-            <div><b>2 markets</b><span>India + United States</span></div>
-            <div><b>3 decisions</b><span>Invest · Listing · Long term</span></div>
+            <div><b>2 markets</b><span>India and United States</span></div>
+            <div><b>3 decisions</b><span>Invest, listing, long term</span></div>
             <div><b>1 rule</b><span>No evidence, no recommendation</span></div>
           </div>
         </aside>
@@ -128,10 +130,10 @@
         <div class="surface-main">
           <div class="surface-head">
             <div>
-              <div class="pctitle"><span class="dot"></span><span id="pcLabel">Loading live coverage…</span></div>
-              <div class="pccompany" id="pcCompany">—</div>
+              <div class="pctitle"><span class="dot"></span><span id="pcLabel">Loading live coverage</span></div>
+              <div class="pccompany" id="pcCompany">Awaiting coverage</div>
             </div>
-            <div class="pctag" id="pcTag">—</div>
+            <div class="pctag" id="pcTag">Status</div>
           </div>
           <div class="dimtabs" id="dimTabs" role="tablist" aria-label="Score dimension">
             <button class="dimtab active" data-dim="overall" role="tab" aria-selected="true">Overall</button>
@@ -140,68 +142,119 @@
           </div>
           <div class="pcbig">
             <span class="pcbiglabel" id="pcDimLabel">Overall</span>
-            <b id="pcBigScore">–</b>
-            <div class="pcbigsub"><b id="pcConfidence">–</b>Confidence</div>
+            <b id="pcBigScore">&ndash;</b>
+            <div class="pcbigsub">Confidence<b id="pcConfidence">&ndash;</b></div>
           </div>
           <div class="pcevidence" id="pcEvidence"></div>
         </div>
         <div class="surface-side">
           <div class="sidelabel">Score comparison</div>
-          <div class="sidemetric"><span>Overall</span><b id="pcOverall">–</b></div>
-          <div class="sidemetric"><span>Listing</span><b id="pcListing">–</b></div>
-          <div class="sidemetric"><span>Long term</span><b id="pcLongTerm">–</b></div>
-          <div class="sidemetric"><span>Valuation</span><b id="pcValuation">–</b></div>
+          <div class="sidemetric"><span>Overall</span><b id="pcOverall">&ndash;</b></div>
+          <div class="sidemetric"><span>Listing</span><b id="pcListing">&ndash;</b></div>
+          <div class="sidemetric"><span>Long term</span><b id="pcLongTerm">&ndash;</b></div>
+          <div class="sidemetric"><span>Valuation</span><b id="pcValuation">&ndash;</b></div>
+          <p class="sidenote">Every figure on this surface is read from the live coverage feed. When a field has no verified value, it stays blank rather than being estimated.</p>
         </div>
       </div></div>
     </div>
   </section>
 
-  <!-- ============ UPCOMING STRIP ============ -->
-  <section class="stripsection" id="product">
+  <!-- ============ UPCOMING TERMINAL ============ -->
+  <section class="stripsection" id="upcoming">
     <div class="container">
       <div class="striphead">
-        <h2 class="section-head" style="margin:0">Upcoming now</h2>
-        <span class="livepill"><i></i>LIVE FROM THE TERMINAL</span>
+        <div>
+          <div class="secindex"><b>01</b><span class="rule"></span>Discovery</div>
+          <h2 class="section-head" style="margin:0">Upcoming and open now</h2>
+        </div>
+        <span class="livepill"><i></i>Live from the terminal</span>
       </div>
-      <div class="strip" id="ipoStrip">
-        <div class="stripempty">Loading current coverage…</div>
+      <div class="terminal">
+        <div class="terminalscroll">
+          <table class="ipotable" id="ipoTable">
+            <thead>
+              <tr>
+                <th scope="col">Issuer</th>
+                <th scope="col">Market</th>
+                <th scope="col">Status</th>
+                <th scope="col" class="n">Overall</th>
+                <th scope="col" class="n">Listing</th>
+                <th scope="col" class="n">Long term</th>
+                <th scope="col">Valuation</th>
+                <th scope="col" class="n">Confidence</th>
+              </tr>
+            </thead>
+            <tbody id="ipoRowsPublic">
+              <tr><td colspan="8"><div class="stripempty">Loading current coverage</div></td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
+      <p class="tiny" style="margin-top:14px">Scores are model output on verified filing data. Open the <a href="/dashboard/">dashboard</a> for price bands, evidence stacks and score history.</p>
     </div>
   </section>
 
   <!-- ============ THREE DECISIONS ============ -->
   <section class="decisions reveal">
     <div class="container">
-      <div class="secindex"><b>01</b><span class="rule"></span>THE PROBLEM</div>
+      <div class="secindex"><b>02</b><span class="rule"></span>The problem</div>
       <h2 class="section-head">One IPO. Three answers.</h2>
-      <p class="sectionlead">Most trackers stop at "is it open." We separate the three questions an investor actually has to answer.</p>
-      <div class="decisionflow">
-        <div class="decisioncard"><div class="num">01</div><h3>Invest?</h3><p>Fundamental quality, valuation and risk — before demand or hype enter the picture.</p></div>
-        <div class="decisioncard"><div class="num">02</div><h3>Listing gains?</h3><p>Demand, pricing and float versus current market conditions — a separate, shorter-horizon signal.</p></div>
-        <div class="decisioncard"><div class="num">03</div><h3>Long term?</h3><p>Business quality, cash flow, governance and whether the price already assumes too much.</p></div>
+      <p class="sectionlead">Most trackers stop at "is it open." We separate the three questions an investor actually has to answer, and score them independently.</p>
+      <div class="decisiontree">
+        <div class="treeroot">
+          <div class="rootlabel">Single issue</div>
+          <div class="rootname">One IPO</div>
+          <div class="rootnote">One filing set, three separate models, three separate confidence levels.</div>
+        </div>
+        <div class="treebranches">
+          <div class="branch">
+            <div class="bnum">01</div>
+            <div>
+              <h3>Invest?</h3>
+              <p>Fundamental quality, valuation and risk, read before demand or narrative enter the picture.</p>
+            </div>
+            <div class="dims"><span>Fundamentals</span><span>Valuation</span><span>Risk flags</span></div>
+          </div>
+          <div class="branch">
+            <div class="bnum">02</div>
+            <div>
+              <h3>Listing opportunity?</h3>
+              <p>Demand, pricing and float against current market conditions. A shorter horizon, scored separately.</p>
+            </div>
+            <div class="dims"><span>Institutional demand</span><span>Float and pricing</span><span>Market regime</span></div>
+          </div>
+          <div class="branch">
+            <div class="bnum">03</div>
+            <div>
+              <h3>Long-term ownership?</h3>
+              <p>Business quality, cash conversion, governance, and whether the price already assumes too much.</p>
+            </div>
+            <div class="dims"><span>Cash flow</span><span>Governance</span><span>Reverse DCF</span></div>
+          </div>
+        </div>
       </div>
-      <div class="onerule">One rule: <b>No evidence, no recommendation.</b></div>
+      <div class="onerule">One rule: <b>no evidence, no recommendation.</b></div>
     </div>
   </section>
 
   <!-- ============ USP COMPARISON ============ -->
   <section class="usp reveal" id="why">
     <div class="container">
-      <div class="secindex"><b>02</b><span class="rule"></span>WHY IT'S DIFFERENT</div>
+      <div class="secindex"><b>03</b><span class="rule"></span>Why it is different</div>
       <div class="usptitle">
-        <h2 class="section-head"><span class="no">Most IPO trackers tell you what is happening.</span><br>IPO Intelligence explains whether it matters.</h2>
-        <p class="sectionlead">Calendars, GMP and subscription numbers are useful — and commoditized. The reliability layer underneath them is what most trackers skip.</p>
+        <h2 class="section-head"><span class="no">Most IPO trackers tell you what is happening.</span><br>IPOIntel explains whether it matters.</h2>
+        <p class="sectionlead">Calendars, grey-market premia and subscription numbers are useful, and commoditized. The reliability layer underneath them is what most trackers skip.</p>
       </div>
-      <div class="uspledgerhead"><div>Typical IPO information</div><div>IPO Intelligence adds</div></div>
+      <div class="uspledgerhead"><div>Typical IPO information</div><div>IPOIntel adds</div></div>
       <div class="uspledger">
         <div class="usprow"><span class="typical">Calendar</span><span class="ipi">Filing-derived fundamentals</span></div>
-        <div class="usprow"><span class="typical">GMP</span><span class="ipi">Relative valuation &amp; reverse DCF</span></div>
-        <div class="usprow"><span class="typical">Subscription</span><span class="ipi">Governance signals</span></div>
+        <div class="usprow"><span class="typical">Grey-market premium</span><span class="ipi">Relative valuation and reverse DCF</span></div>
+        <div class="usprow"><span class="typical">Subscription numbers</span><span class="ipi">Governance signals</span></div>
         <div class="usprow"><span class="typical">Allotment status</span><span class="ipi">Deterministic red flags</span></div>
-        <div class="usprow"><span class="typical">—</span><span class="ipi">Contradiction detection</span></div>
-        <div class="usprow"><span class="typical">—</span><span class="ipi">Separate listing / long-term models</span></div>
-        <div class="usprow"><span class="typical">—</span><span class="ipi">Source provenance &amp; confidence gating</span></div>
-        <div class="usprow"><span class="typical">—</span><span class="ipi">Immutable forward predictions</span></div>
+        <div class="usprow"><span class="typical">Not covered</span><span class="ipi">Contradiction detection across sources</span></div>
+        <div class="usprow"><span class="typical">Not covered</span><span class="ipi">Separate listing and long-term models</span></div>
+        <div class="usprow"><span class="typical">Not covered</span><span class="ipi">Source provenance and confidence gating</span></div>
+        <div class="usprow"><span class="typical">Not covered</span><span class="ipi">Immutable forward predictions</span></div>
       </div>
     </div>
   </section>
@@ -209,20 +262,20 @@
   <!-- ============ TRUTH ENGINE ============ -->
   <section class="evidencepanel reveal" id="truth-engine">
     <div class="container">
-      <div class="secindex"><b>03</b><span class="rule"></span>THE INTELLIGENCE LAYER</div>
-      <h2 class="section-head">Every conclusion has evidence.</h2>
-      <p class="sectionlead">Every material metric traces back to its source, page, freshness and confidence tier. Conflicts reduce confidence instead of being silently averaged. <span class="tiny">(Illustrative example)</span></p>
+      <div class="secindex"><b>04</b><span class="rule"></span>The intelligence layer</div>
+      <h2 class="section-head">Every conclusion carries its evidence.</h2>
+      <p class="sectionlead">Each material metric traces back to its source, page, freshness and confidence tier. Conflicts reduce confidence instead of being silently averaged. <span class="tiny">(Illustrative example)</span></p>
       <div class="evidenceflow">
-        <div class="efmetric"><span>Sample metric</span><b>Revenue CAGR: 31.4%</b></div>
+        <div class="efmetric"><span>Sample metric</span><b>Revenue CAGR 31.4%</b></div>
         <div class="efnode"><div class="dot"></div><div class="line"></div></div>
-        <div class="efrow"><b>RHP, Page 247</b><span>Source &amp; location</span></div>
+        <div class="efrow"><b>RHP, page 247</b><span>Source and location</span></div>
         <div class="efnode"><div class="dot"></div><div class="line"></div></div>
-        <div class="efrow"><b>Observed Aug 2026</b><span class="live">Freshness — LIVE</span></div>
+        <div class="efrow"><b>Observed Aug 2026</b><span class="live">Freshness: live</span></div>
         <div class="efnode"><div class="dot"></div><div class="line"></div></div>
-        <div class="efrow"><b>Official tier · High confidence</b><span>Source classification</span></div>
+        <div class="efrow"><b>Official tier, high confidence</b><span>Source classification</span></div>
         <div class="efresult">
           <span class="lbl">Financial quality</span><b class="delta">+6.2</b>
-          <span class="arrow">→</span>
+          <span class="arrow">&rarr;</span>
           <span class="lbl">Overall score</span><b>74</b>
         </div>
       </div>
@@ -232,11 +285,11 @@
   <!-- ============ REVERSE DCF ============ -->
   <section class="reversedcf reveal">
     <div class="container">
-      <div class="secindex"><b>04</b><span class="rule"></span>WHAT PRICE ALREADY ASSUMES</div>
-      <h2 class="section-head">What must go right?</h2>
+      <div class="secindex"><b>05</b><span class="rule"></span>What the price already assumes</div>
+      <h2 class="section-head">What has to go right?</h2>
       <p class="sectionlead">Instead of asking what a company might be worth, we ask what performance the IPO price already assumes. <span class="tiny">(Illustrative example)</span></p>
       <div class="dcfcard">
-        <div class="dcfassumes">IPO price implies <b>28% revenue CAGR</b> for <b>5 years</b> at <b>18% operating margin</b>.</div>
+        <div class="dcfassumes">The IPO price implies <b>28% revenue CAGR</b> for <b>five years</b> at <b>18% operating margin</b>.</div>
         <div class="dcfplot">
           <div class="dcfbar"><span class="lb">Peer median CAGR</span><div class="track"><div class="fill" style="width:42%"></div></div><span class="val">17%</span></div>
           <div class="dcfbar"><span class="lb">Historical company CAGR</span><div class="track"><div class="fill" style="width:55%"></div></div><span class="val">22%</span></div>
@@ -244,8 +297,8 @@
         </div>
         <div class="dcfscale"><span></span><div class="marks"><span>0%</span><span>10%</span><span>20%</span><span>30%</span><span>40%</span></div><span></span></div>
         <div class="dcfgap">
-          <span class="tag">EXPECTATIONS GAP: HIGH</span>
-          <div class="dcfexplain">At the IPO price, investors are already paying for growth materially above both historical performance and peer norms.</div>
+          <span class="tag">Expectations gap: high</span>
+          <div class="dcfexplain">At this price, investors are already paying for growth materially above both the company's own history and peer norms.</div>
         </div>
       </div>
     </div>
@@ -254,14 +307,14 @@
   <!-- ============ RED FLAGS ============ -->
   <section class="redflagsection reveal">
     <div class="container">
-      <div class="secindex"><b>05</b><span class="rule"></span>RISK LEDGER</div>
-      <h2 class="section-head">What the prospectus might not make obvious at first glance.</h2>
-      <p class="sectionlead">Deterministic checks, not sentiment. <span class="tiny">(Illustrative example)</span></p>
+      <div class="secindex"><b>06</b><span class="rule"></span>Risk ledger</div>
+      <h2 class="section-head">What the prospectus does not make obvious.</h2>
+      <p class="sectionlead">Deterministic checks on disclosed fields, not sentiment. <span class="tiny">(Illustrative example)</span></p>
       <div class="flagledger">
-        <div class="flagrow high"><span class="flagtag">HIGH</span><div class="flagbody"><b>Cash conversion deterioration</b><span>Over the last two fiscal years</span></div><span class="flagmetric">CFO/PAT 0.41x</span></div>
-        <div class="flagrow watch"><span class="flagtag">WATCH</span><div class="flagbody"><b>Customer concentration</b><span>Revenue reliant on a small customer base</span></div><span class="flagmetric">Top 3: 63%</span></div>
-        <div class="flagrow watch"><span class="flagtag">WATCH</span><div class="flagbody"><b>OFS concentration</b><span>Large offer-for-sale relative to fresh issue</span></div><span class="flagmetric">58% of issue</span></div>
-        <div class="flagrow info"><span class="flagtag">INFO</span><div class="flagbody"><b>Promoter ownership</b><span>Remains high post-issue</span></div><span class="flagmetric">71%</span></div>
+        <div class="flagrow high"><span class="flagtag">High</span><div class="flagbody"><b>Cash conversion deteriorating</b><span>Across the last two fiscal years</span></div><span class="flagmetric">CFO/PAT 0.41x</span></div>
+        <div class="flagrow watch"><span class="flagtag">Watch</span><div class="flagbody"><b>Customer concentration</b><span>Revenue reliant on a small customer base</span></div><span class="flagmetric">Top 3: 63%</span></div>
+        <div class="flagrow watch"><span class="flagtag">Watch</span><div class="flagbody"><b>Large offer-for-sale component</b><span>Offer for sale relative to fresh issue</span></div><span class="flagmetric">58% of issue</span></div>
+        <div class="flagrow info"><span class="flagtag">Info</span><div class="flagbody"><b>Promoter ownership remains high</b><span>Post-issue holding</span></div><span class="flagmetric">71%</span></div>
       </div>
     </div>
   </section>
@@ -269,13 +322,13 @@
   <!-- ============ WHAT CHANGED ============ -->
   <section class="changesection reveal">
     <div class="container">
-      <div class="secindex"><b>06</b><span class="rule"></span>VERSION HISTORY</div>
+      <div class="secindex"><b>07</b><span class="rule"></span>Version history</div>
       <h2 class="section-head">The score is not static.</h2>
-      <p class="sectionlead">Every meaningful change is timestamped and attributed. <span class="tiny">(Illustrative example)</span></p>
+      <p class="sectionlead">Every meaningful change is timestamped and attributed to the evidence that moved it. <span class="tiny">(Illustrative example)</span></p>
       <div class="timeline">
         <div class="tlrow"><div class="tldate">Aug 26</div><div class="tlscore">71</div></div>
         <div class="tlrow"><div class="tldate">Aug 28</div><div class="tldeltas"><span class="delta pos">+4 institutional demand</span></div></div>
-        <div class="tlrow"><div class="tldate">Aug 30</div><div class="tldeltas"><span class="delta pos">+3 market regime</span><span class="delta neg">−1 valuation expansion</span></div></div>
+        <div class="tlrow"><div class="tldate">Aug 30</div><div class="tldeltas"><span class="delta pos">+3 market regime</span><span class="delta neg">&minus;1 valuation expansion</span></div></div>
         <div class="tlrow current"><div class="tldate">Current</div><div class="tlscore">79</div></div>
       </div>
     </div>
@@ -284,27 +337,27 @@
   <!-- ============ FORWARD ACCOUNTABILITY ============ -->
   <section class="forwardsection reveal">
     <div class="container">
-      <div class="secindex"><b>07</b><span class="rule"></span>ACCOUNTABILITY</div>
+      <div class="secindex"><b>08</b><span class="rule"></span>Accountability</div>
       <h2 class="section-head">Predictions that cannot be rewritten later.</h2>
-      <p class="sectionlead">Before listing, the system permanently records a snapshot. After listing, the outcome is attached separately — never merged back into the original.</p>
+      <p class="sectionlead">Before listing, the system permanently records a snapshot. After listing, the outcome is attached separately and never merged back into the original.</p>
       <div class="forwardgrid">
         <div class="lockcard frozen">
-          <div class="lockhead"><h4>Before listing</h4><span class="lockbadge">🔒 FROZEN</span></div>
+          <div class="lockhead"><h4>Before listing</h4><span class="lockbadge">Frozen</span></div>
           <div class="lockkv">
             <div><span>Timestamp</span><b>Aug 31, 09:32 UTC</b></div>
             <div><span>Score</span><b>78</b></div>
             <div><span>Listing probability</span><b>67%</b></div>
-            <div><span>Recommendation</span><b>SELECTIVE</b></div>
-            <div><span>Model</span><b>v0.4.1</b></div>
+            <div><span>Recommendation</span><b>Selective</b></div>
+            <div><span>Model version</span><b>v0.4.1</b></div>
           </div>
         </div>
         <div class="lockcard">
-          <div class="lockhead"><h4>After listing</h4><span class="lockbadge">ATTACHED SEPARATELY</span></div>
+          <div class="lockhead"><h4>After listing</h4><span class="lockbadge">Attached separately</span></div>
           <div class="lockkv">
             <div><span>Listing return</span><b>Pending</b></div>
-            <div><span>1-month return</span><b>Pending</b></div>
-            <div><span>6-month return</span><b>Pending</b></div>
-            <div><span>Outcome vs. prediction</span><b>Pending</b></div>
+            <div><span>One-month return</span><b>Pending</b></div>
+            <div><span>Six-month return</span><b>Pending</b></div>
+            <div><span>Outcome against prediction</span><b>Pending</b></div>
           </div>
         </div>
       </div>
@@ -315,10 +368,11 @@
   <!-- ============ TRACK RECORD PREVIEW ============ -->
   <section class="trackpreview reveal" id="track-record">
     <div class="container">
-      <div class="secindex"><b>08</b><span class="rule"></span>UPCOMING OPPORTUNITIES</div>
-      <h2 class="section-head">Historical performance, honestly reported.</h2>
-      <p class="sectionlead">Past IPO return distributions are shown as-is — no cherry-picking, no inflated accuracy claims while the model's discriminative power is still being built.</p>
-      <div class="trackbadge">Track record building — forward predictions are now being recorded immutably.</div>
+      <div class="secindex"><b>09</b><span class="rule"></span>Track record</div>
+      <h2 class="section-head">Historical performance, reported honestly.</h2>
+      <p class="sectionlead">Past IPO return distributions are shown as they are, with no cherry-picking and no inflated accuracy claims while the model's discriminative power is still being established. The full breakdown by market and horizon sits in the dashboard.</p>
+      <div class="trackbadge">Track record building. Forward predictions are now recorded immutably.</div>
+      <div style="margin-top:24px"><a class="btn" href="/dashboard/">Open the track record <span class="arrow">&rarr;</span></a></div>
     </div>
   </section>
 
@@ -327,43 +381,44 @@
     <div class="container">
       <div class="ctasplit">
         <div class="ctacopy">
+          <div class="secindex"><b>10</b><span class="rule"></span>Early access</div>
           <h2 class="section-head">Join the research terminal before public launch.</h2>
-          <p class="sectionlead">For investors who want the filing before the narrative. India + U.S. IPO intelligence, score-change alerts and launch updates.</p>
+          <p class="sectionlead">For investors who want the filing before the narrative. India and U.S. IPO intelligence, score-change alerts and launch updates.</p>
           <div class="ctapoints">
-            <div>No spam. Material IPO updates only.</div>
-            <div>Unsubscribe anytime.</div>
-            <div>Research and decision support only — not investment advice.</div>
+            <div>Material IPO updates only, no marketing volume.</div>
+            <div>Unsubscribe at any time.</div>
+            <div>Research and decision support only, not investment advice.</div>
           </div>
         </div>
         <div class="waitcard">
           <form id="waitlistForm">
             <div class="formgrid">
               <div class="field"><label for="firstName">First name</label><input id="firstName" name="firstName" autocomplete="given-name" required placeholder="First name"></div>
-              <div class="field"><label for="lastName">Last name</label><input id="lastName" name="lastName" autocomplete="family-name" placeholder="Last name (optional)"></div>
+              <div class="field"><label for="lastName">Last name</label><input id="lastName" name="lastName" autocomplete="family-name" placeholder="Optional"></div>
               <div class="field full"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="email" required placeholder="you@example.com"></div>
               <div class="field"><label for="role">Role</label>
                 <select id="role" name="role" required>
                   <option value="" disabled selected>Select role</option>
                   <option value="retail">Retail investor</option>
                   <option value="professional">Professional investor</option>
-                  <option value="advisor">Advisor / analyst</option>
-                  <option value="founder">Founder / operator</option>
+                  <option value="advisor">Advisor or analyst</option>
+                  <option value="founder">Founder or operator</option>
                   <option value="other">Other</option>
                 </select>
               </div>
-              <div class="field"><label for="currentLevel">Current level</label>
+              <div class="field"><label for="currentLevel">Experience</label>
                 <select id="currentLevel" name="currentLevel">
                   <option value="">Prefer not to say</option>
                   <option value="new">New to IPO investing</option>
                   <option value="some">Some experience</option>
                   <option value="experienced">Experienced</option>
-                  <option value="professional">Professional / institutional</option>
+                  <option value="professional">Professional or institutional</option>
                 </select>
               </div>
               <div class="field full checkboxfield"><label><input id="sendUpdates" name="sendUpdates" type="checkbox" checked> Send me occasional product updates</label></div>
               <div class="honeypot"><label for="website">Website</label><input id="website" name="website" tabindex="-1" autocomplete="off"></div>
             </div>
-            <button class="btn primary block" style="margin-top:6px" type="submit">Join early access</button>
+            <button class="btn primary block lg" style="margin-top:10px" type="submit">Join early access</button>
             <div id="message" class="message" role="status" aria-live="polite"></div>
           </form>
         </div>
@@ -372,47 +427,73 @@
   </section>
 </main>
 
-<div class="disclaimer">Research and decision-support only. Not investment advice. No guaranteed outcomes.</div>
 <footer class="footer">
   <div class="container">
-    <div>IPO Intelligence Terminal · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></div>
-    <div class="tiny">Part of <a href="https://brandsap.com" target="_blank" rel="noopener noreferrer">Brandsap</a> · Founder: <a href="https://pandeysatyam.com" target="_blank" rel="noopener noreferrer">Satyam Pandey</a></div>
-    <div class="tiny">© 2026 IPO Intelligence</div>
+    <div class="footbrand">
+      <a class="navbrand" href="/">
+        <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <path d="M11 6H7.6C7.05 6 6.6 6.45 6.6 7V25C6.6 25.55 7.05 26 7.6 26H11" stroke="#8fb2ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M21 6H24.4C24.95 6 25.4 6.45 25.4 7V25C25.4 25.55 24.95 26 24.4 26H21" stroke="#8fb2ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+          <rect x="14" y="12" width="4" height="8" rx="1.4" fill="#72e6c2"/>
+        </svg>
+        <b>IPO<span>Intel</span></b>
+      </a>
+      <p class="tiny" style="margin:0">Evidence-first IPO intelligence for India and the United States. ipointel.brandsap.com</p>
+      <p class="tiny" style="margin:0;color:var(--muted2)">Research and decision support only. Not investment advice. No guaranteed outcomes.</p>
+    </div>
+    <div class="footcol">
+      <h4>Product</h4>
+      <a href="/">Home</a>
+      <a href="/dashboard/">Dashboard</a>
+      <a href="/#truth-engine">Methodology</a>
+      <a href="/#track-record">Track record</a>
+    </div>
+    <div class="footcol">
+      <h4>Company</h4>
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+      <a href="https://brandsap.com" target="_blank" rel="noopener noreferrer">Brandsap</a>
+      <a href="https://pandeysatyam.com" target="_blank" rel="noopener noreferrer">Satyam Pandey</a>
+    </div>
+    <div class="footnote" style="grid-column:1/-1">
+      <span>&copy; 2026 IPOIntel</span>
+      <span>India and United States coverage</span>
+    </div>
   </div>
 </footer>
 
 <!-- ============ EARLY-ACCESS MODAL ============ -->
 <div class="modal-overlay" id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
   <div class="modal-card">
-    <button class="modal-close" id="modalClose" aria-label="Close">✕</button>
+    <button class="modal-close" id="modalClose" aria-label="Close">&#10005;</button>
     <div class="modal-brand">
       <div class="eyebrow">Early access</div>
       <h2 id="modalTitle">For investors who want the filing before the narrative.</h2>
     </div>
     <div class="modal-form">
-      <p>Join early access for India + U.S. IPO intelligence, score changes and launch updates.</p>
+      <p>India and U.S. IPO intelligence, score changes and launch updates.</p>
       <form id="modalForm">
         <div class="formgrid">
           <div class="field"><label for="modalFirstName">First name</label><input id="modalFirstName" name="firstName" autocomplete="given-name" required placeholder="First name"></div>
-          <div class="field"><label for="modalLastName">Last name</label><input id="modalLastName" name="lastName" autocomplete="family-name" placeholder="Last name (optional)"></div>
+          <div class="field"><label for="modalLastName">Last name</label><input id="modalLastName" name="lastName" autocomplete="family-name" placeholder="Optional"></div>
           <div class="field full"><label for="modalEmail">Email</label><input id="modalEmail" name="email" type="email" autocomplete="email" required placeholder="you@example.com"></div>
           <div class="field"><label for="modalRole">Role</label>
             <select id="modalRole" name="role" required>
               <option value="" disabled selected>Select role</option>
               <option value="retail">Retail investor</option>
               <option value="professional">Professional investor</option>
-              <option value="advisor">Advisor / analyst</option>
-              <option value="founder">Founder / operator</option>
+              <option value="advisor">Advisor or analyst</option>
+              <option value="founder">Founder or operator</option>
               <option value="other">Other</option>
             </select>
           </div>
-          <div class="field"><label for="modalCurrentLevel">Current level</label>
+          <div class="field"><label for="modalCurrentLevel">Experience</label>
             <select id="modalCurrentLevel" name="currentLevel">
               <option value="">Prefer not to say</option>
               <option value="new">New to IPO investing</option>
               <option value="some">Some experience</option>
               <option value="experienced">Experienced</option>
-              <option value="professional">Professional / institutional</option>
+              <option value="professional">Professional or institutional</option>
             </select>
           </div>
         </div>

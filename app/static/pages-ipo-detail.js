@@ -5,10 +5,10 @@
 (() => {
   'use strict';
   const $ = s => document.querySelector(s);
-  const fmt = (v, d = 1) => v == null ? '—' : Number(v).toFixed(d);
+  const fmt = (v, d = 1) => v == null ? '–' : Number(v).toFixed(d);
   const cls = v => v == null ? 'neutral' : v >= 70 ? 'good' : v >= 55 ? 'warn' : 'bad';
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const money = x => { if (x.price_low == null && x.price_high == null) return '—'; return `${x.currency === 'INR' ? '₹' : '$'}${fmt(x.price_low ?? x.price_high, 0)}${x.price_low && x.price_high && x.price_low !== x.price_high ? '–' + fmt(x.price_high, 0) : ''}`; };
+  const money = x => { if (x.price_low == null && x.price_high == null) return '–'; return `${x.currency === 'INR' ? '₹' : '$'}${fmt(x.price_low ?? x.price_high, 0)}${x.price_low && x.price_high && x.price_low !== x.price_high ? '–' + fmt(x.price_high, 0) : ''}`; };
   const sevClass = sv => sv === 'CRITICAL' || sv === 'HIGH' ? 'bad' : sv === 'WATCH' ? 'warn' : 'neutral';
 
   function bars(p) {
@@ -34,7 +34,7 @@
     let h = '<h3>Reverse DCF &amp; valuation</h3>';
     if (rv && rv.available) h += `<div class="evidence"><div><b>Reverse DCF</b> <span class="tier ${rv.expectations_gap === 'EXTREME' || rv.expectations_gap === 'HIGH' ? 'bad' : rv.expectations_gap === 'MODERATE' ? 'warn' : 'neutral'}">${esc(rv.expectations_gap)} expectations gap</span></div><p style="font-size:12px">${esc(rv.narrative)}</p>${(rv.expectations_gap_reasons || []).length ? `<ul>${rv.expectations_gap_reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}</div>`;
     else h += `<p class="muted">Reverse DCF unavailable: ${esc((rv && rv.reason) || 'insufficient data')}</p>`;
-    if (sc && sc.available) h += '<div class="kv">' + ['bear', 'base', 'bull'].map(k => { const sd = sc.scenarios[k]; return sd && sd.available ? `<div><span>${k[0].toUpperCase() + k.slice(1)}</span><b>${sd.fair_value_per_share != null ? fmt(sd.fair_value_per_share, 2) : '—'} (${sd.upside_vs_ipo_price_pct != null ? fmt(sd.upside_vs_ipo_price_pct, 0) + '%' : '—'})</b></div>` : ''; }).join('') + '</div>';
+    if (sc && sc.available) h += '<div class="kv">' + ['bear', 'base', 'bull'].map(k => { const sd = sc.scenarios[k]; return sd && sd.available ? `<div><span>${k[0].toUpperCase() + k.slice(1)}</span><b>${sd.fair_value_per_share != null ? fmt(sd.fair_value_per_share, 2) : '–'} (${sd.upside_vs_ipo_price_pct != null ? fmt(sd.upside_vs_ipo_price_pct, 0) + '%' : '–'})</b></div>` : ''; }).join('') + '</div>';
     else h += `<p class="muted">Scenario DCF unavailable: ${esc((sc && sc.reason) || 'insufficient data')}</p>`;
     return h;
   }
@@ -43,14 +43,14 @@
     if (!r || !r.available) { h += `<p class="muted">${esc((r && r.reason) || 'Not enough comparable history yet.')}</p>`; return h; }
     h += `<p class="kicker">Match quality: ${esc(r.match_quality)} · features used: ${(r.features_used || []).join(', ')}</p>`;
     if (r.aggregate) h += `<div class="kv"><div><span>Median listing return (n=${r.aggregate.n_with_return})</span><b>${fmt(r.aggregate.median_listing_return_pct, 1)}%</b></div><div><span>Success rate</span><b>${fmt(r.aggregate.success_rate_pct, 0)}%</b></div></div>`;
-    h += (r.matches || []).map(m => `<div class="evidence"><div><b>${esc(m.company)}</b> ${m.symbol ? '(' + esc(m.symbol) + ')' : ''}</div><div class="muted" style="font-size:11px">${esc((m.matched_on || []).join(', '))} · listing return: ${m.listing_return_pct != null ? fmt(m.listing_return_pct, 1) + '%' : '—'}</div></div>`).join('');
+    h += (r.matches || []).map(m => `<div class="evidence"><div><b>${esc(m.company)}</b> ${m.symbol ? '(' + esc(m.symbol) + ')' : ''}</div><div class="muted" style="font-size:11px">${esc((m.matched_on || []).join(', '))} · listing return: ${m.listing_return_pct != null ? fmt(m.listing_return_pct, 1) + '%' : '–'}</div></div>`).join('');
     return h;
   }
   function changesBlock(r) {
     let h = '<h3>Score history</h3>';
     const t = (r && r.timeline) || [];
     if (!t.length) { h += '<p class="muted">Only one score snapshot recorded so far.</p>'; return h; }
-    h += t.slice().reverse().map(x => `<div class="evidence"><div><b>${x.at.slice(0, 16).replace('T', ' ')}</b> — overall ${fmt(x.overall, 0)} ${x.delta_overall != null ? `(${x.delta_overall >= 0 ? '+' : ''}${x.delta_overall})` : ''}</div>${x.recommendation_change ? `<div class="muted" style="font-size:11px">${esc(x.recommendation_change)}</div>` : ''}</div>`).join('');
+    h += t.slice().reverse().map(x => `<div class="evidence"><div><b>${x.at.slice(0, 16).replace('T', ' ')}</b>, overall ${fmt(x.overall, 0)} ${x.delta_overall != null ? `(${x.delta_overall >= 0 ? '+' : ''}${x.delta_overall})` : ''}</div>${x.recommendation_change ? `<div class="muted" style="font-size:11px">${esc(x.recommendation_change)}</div>` : ''}</div>`).join('');
     return h;
   }
 
@@ -59,11 +59,27 @@
   const id = root.dataset.ipoId;
   fetch(`/data/ipo/${id}.json`).then(r => { if (!r.ok) throw new Error('not found'); return r.json(); }).then(full => {
     const x = full.detail, s = x.score || {}, prov = x.provenance || [];
-    document.title = `${x.company} — IPO Intelligence`;
-    root.innerHTML = `<div class="kicker">${esc(x.country)} · ${esc(x.status)} · ${esc(x.symbol || 'No ticker yet')}</div>
-<h1 style="margin:0 0 2px;font-size:28px">${esc(x.company)}</h1>
-<div class="scorehero"><div class="ring" style="--p:${s.overall || 0}"><b>${fmt(s.overall, 0)}</b></div><div><div class="kicker">Overall / 100</div><b>${esc(s.recommendation || 'Pending score')}</b><div class="muted" style="font-size:12px;margin-top:5px">${esc(s.horizon || '')}</div><div style="margin-top:9px"><span class="pill">Listing ${fmt(s.listing_probability, 0)}%</span> <span class="pill">Long term ${fmt(s.long_term_probability, 0)}%</span></div></div></div>
-<div class="kv"><div><span>Valuation</span><b>${esc(s.valuation || '—')}</b></div><div><span>Confidence</span><b class="${cls(s.confidence)}">${fmt(s.confidence, 0)}%</b></div><div><span>Price band</span><b>${money(x)}</b></div><div><span>Fair range</span><b>${s.fair_low != null ? `${x.currency === 'INR' ? '₹' : '$'}${fmt(s.fair_low, 0)}–${fmt(s.fair_high, 0)}` : '—'}</b></div></div>
+    document.title = `${x.company} · IPOIntel`;
+    const dates = [['Filed', x.filing_date], ['Opens', x.open_date], ['Closes', x.close_date], ['Lists', x.listing_date]]
+      .filter(([, v]) => v).map(([k, v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join('');
+    root.innerHTML = `<header class="notehead">
+  <div class="noteeyebrow">Research note · ${esc(x.country)}</div>
+  <h1>${esc(x.company)}</h1>
+  <div class="notemeta">
+    <div><span>Ticker</span><b>${esc(x.symbol || 'Pending')}</b></div>
+    <div><span>Stage</span><b>${esc(x.status)}</b></div>
+    <div><span>Price band</span><b>${money(x)}</b></div>
+    ${dates}
+  </div>
+</header>
+<div class="notescores">
+  <div><span>Overall</span><b class="${cls(s.overall)}">${fmt(s.overall, 0)}</b></div>
+  <div><span>Listing</span><b class="${cls(s.listing)}">${fmt(s.listing, 0)}</b></div>
+  <div><span>Long term</span><b class="${cls(s.long_term)}">${fmt(s.long_term, 0)}</b></div>
+  <div><span>Confidence</span><b class="${cls(s.confidence)}">${fmt(s.confidence, 0)}%</b></div>
+</div>
+<div class="scorehero"><div class="ring" style="--p:${s.overall || 0}"><b>${fmt(s.overall, 0)}</b></div><div><div class="kicker">Investment view</div><b style="font-size:19px">${esc(s.recommendation || 'Pending score')}</b><div class="muted" style="font-size:13px;margin-top:5px">${esc(s.horizon || '')}</div><div style="margin-top:11px;display:flex;gap:8px;flex-wrap:wrap"><span class="pill">Listing probability ${fmt(s.listing_probability, 0)}%</span><span class="pill">Long term ${fmt(s.long_term_probability, 0)}%</span></div></div></div>
+<div class="kv"><div><span>Valuation</span><b>${esc(s.valuation || '–')}</b></div><div><span>Confidence</span><b class="${cls(s.confidence)}">${fmt(s.confidence, 0)}%</b></div><div><span>Price band</span><b>${money(x)}</b></div><div><span>Fair range</span><b>${s.fair_low != null ? `${x.currency === 'INR' ? '₹' : '$'}${fmt(s.fair_low, 0)}–${fmt(s.fair_high, 0)}` : '–'}</b></div></div>
 <h3>Score decomposition</h3>${bars(s.pillars)}
 <h3>Why it scores this way</h3>${(s.rationale || []).length ? `<ul>${s.rationale.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : '<p class="muted">No strong positive evidence has cleared the configured thresholds yet.</p>'}
 <h3>Risks</h3>${(s.risks || []).length ? `<ul>${s.risks.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : '<p class="muted">No model-level red flags recorded.</p>'}

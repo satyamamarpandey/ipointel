@@ -267,7 +267,7 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
     # ---------- static assets ----------
     static_out = out_dir / "static"
     shutil.copytree(STATIC / "brand", static_out / "brand")
-    for fn in ["styles.css", "landing.js", "app.js", "login.js", "pages-adapter.js", "pages-ipo-detail.js", "site.webmanifest"]:
+    for fn in ["styles.css", "nav.js", "landing.js", "app.js", "login.js", "pages-adapter.js", "pages-ipo-detail.js", "site.webmanifest"]:
         src = STATIC / fn
         if src.exists():
             shutil.copy2(src, static_out / fn)

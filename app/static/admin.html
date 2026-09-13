@@ -1,26 +1,102 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Admin — IPO Intelligence</title><link rel="manifest" href="/static/site.webmanifest"><link rel="icon" href="/static/favicon.ico" sizes="any"><link rel="icon" type="image/svg+xml" href="/static/brand/favicon.svg"><link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png"><link rel="stylesheet" href="/static/styles.css"></head><body><header class="appnav"><div class="container"><nav class="nav" style="display:flex;align-items:center;justify-content:space-between;padding:16px 0 10px;gap:12px"><a class="navbrand" href="/"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true" width="26" height="26"><path d="M11 6H7.6C7.05 6 6.6 6.45 6.6 7V25C6.6 25.55 7.05 26 7.6 26H11" stroke="#7ea8ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><path d="M21 6H24.4C24.95 6 25.4 6.45 25.4 7V25C25.4 25.55 24.95 26 24.4 26H21" stroke="#7ea8ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/><rect x="14" y="12" width="4" height="8" rx="1.4" fill="#72e6c2"/></svg><b>IPO<span>Intelligence</span></b></a><span class="pill">Admin</span></nav></div></header>
-<main class="container appmain">
-<div id="tokenGate" class="panel"><div class="panelhead"><h3>Admin token</h3></div><div class="detail">
-<div class="field"><label for="tok">X-Admin-Token</label><input id="tok" type="password" autocomplete="off"></div>
-<button id="tokSave" class="btn primary" type="button">Unlock admin</button>
-<p class="muted" id="tokMsg"></p>
-</div></div>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Operations · IPOIntel admin</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0a1016">
+<link rel="manifest" href="/static/site.webmanifest">
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<link rel="icon" type="image/svg+xml" href="/static/brand/favicon.svg">
+<link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="app">
+<header class="appnav">
+  <div class="container">
+    <div class="appnavtop">
+      <a class="navbrand" href="/">
+        <svg viewBox="0 0 32 32" fill="none" aria-hidden="true" width="26" height="26">
+          <path d="M11 6H7.6C7.05 6 6.6 6.45 6.6 7V25C6.6 25.55 7.05 26 7.6 26H11" stroke="#8fb2ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M21 6H24.4C24.95 6 25.4 6.45 25.4 7V25C25.4 25.55 24.95 26 24.4 26H21" stroke="#8fb2ff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+          <rect x="14" y="12" width="4" height="8" rx="1.4" fill="#72e6c2"/>
+        </svg>
+        <b>IPO<span>Intel</span></b>
+      </a>
+      <span class="pill" style="border-color:rgba(230,181,102,.4);color:var(--warn)">Operations console</span>
+      <nav class="appnavlinks" aria-label="Site">
+        <a href="/dashboard/">Terminal</a>
+        <a href="/">Public site</a>
+      </nav>
+    </div>
+  </div>
+</header>
 
-<div id="adminBody" style="display:none">
-<div class="metricgrid">
-<div class="metric"><span>Waitlisted</span><b id="mWait">—</b></div>
-<div class="metric"><span>Invited</span><b id="mInvited">—</b></div>
-<div class="metric"><span>Active</span><b id="mActive">—</b></div>
-<div class="metric"><span>Disabled</span><b id="mDisabled">—</b></div>
-<div class="metric"><span>Forward predictions</span><b id="mForward">—</b></div>
-</div>
-<div class="split">
-<div class="panel"><div class="panelhead"><h3>Users</h3><span class="pill" id="userCount">0</span></div><div class="tablewrap"><table class="table"><thead><tr><th>Email</th><th>Name</th><th>Market</th><th>Status</th><th>Signed up</th><th>Last login</th><th>Actions</th></tr></thead><tbody id="userRows"></tbody></table></div></div>
-<aside class="panel"><div class="panelhead"><h3>Source health</h3></div><div id="srcHealth" class="detail"></div>
-<div class="panelhead" style="margin-top:16px"><h3>Google Sheets waitlist sync</h3></div><div id="sheetsStatus" class="detail"></div>
-<div class="panelhead" style="margin-top:16px"><h3>Recent admin actions</h3></div><div id="auditRows" class="detail"></div>
-</aside>
-</div>
-</div>
+<main class="container appmain">
+  <div id="tokenGate" class="panel" style="max-width:460px">
+    <div class="panelhead"><h3>Admin token</h3></div>
+    <div class="detail">
+      <p class="muted" style="margin-top:0">This console reads operational data only. Access is gated on the server-side admin token.</p>
+      <div class="field"><label for="tok">X-Admin-Token</label><input id="tok" type="password" autocomplete="off"></div>
+      <button id="tokSave" class="btn primary" type="button">Unlock console</button>
+      <p class="muted tiny" id="tokMsg"></p>
+    </div>
+  </div>
+
+  <div id="adminBody" style="display:none">
+    <div class="metricgrid">
+      <div class="metric"><span>Waitlisted</span><b id="mWait">&ndash;</b></div>
+      <div class="metric"><span>Invited</span><b id="mInvited">&ndash;</b></div>
+      <div class="metric"><span>Active</span><b id="mActive">&ndash;</b></div>
+      <div class="metric"><span>Disabled</span><b id="mDisabled">&ndash;</b></div>
+      <div class="metric"><span>Forward predictions</span><b id="mForward">&ndash;</b></div>
+    </div>
+
+    <div class="split" style="margin-top:20px">
+      <div class="panel">
+        <div class="panelhead">
+          <h3>Users</h3>
+          <span class="pill" id="userCount">0</span>
+        </div>
+        <div class="tablewrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">Email</th>
+                <th scope="col">Name</th>
+                <th scope="col">Market</th>
+                <th scope="col">Status</th>
+                <th scope="col">Signed up</th>
+                <th scope="col">Last login</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="userRows"></tbody>
+          </table>
+        </div>
+      </div>
+      <aside style="display:flex;flex-direction:column;gap:20px">
+        <div class="panel">
+          <div class="panelhead"><h3>Source and worker health</h3></div>
+          <div id="srcHealth" class="detail"></div>
+        </div>
+        <div class="panel">
+          <div class="panelhead"><h3>Waitlist sheet sync</h3></div>
+          <div id="sheetsStatus" class="detail"></div>
+        </div>
+        <div class="panel">
+          <div class="panelhead"><h3>Recent admin actions</h3></div>
+          <div id="auditRows" class="detail"></div>
+        </div>
+      </aside>
+    </div>
+  </div>
 </main>
-<script src="/static/admin.js"></script></body></html>
+
+<script src="/static/admin.js"></script>
+</body>
+</html>

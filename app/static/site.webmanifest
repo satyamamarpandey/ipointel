@@ -1,11 +1,11 @@
 {
-  "name": "IPO Intelligence Terminal",
-  "short_name": "IPO Intelligence",
+  "name": "IPOIntel",
+  "short_name": "IPOIntel",
   "description": "Evidence-first IPO intelligence for India and the United States.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#071018",
-  "theme_color": "#071018",
+  "background_color": "#06090d",
+  "theme_color": "#06090d",
   "icons": [
     { "src": "/static/brand/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "/static/brand/icon-512.png", "sizes": "512x512", "type": "image/png" }
