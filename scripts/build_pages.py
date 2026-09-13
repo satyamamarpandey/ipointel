@@ -306,7 +306,7 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
         slug = id_to_slug[ipo.id]
         canonical = f"{base_url}/ipo/{slug}/"
         page = (template
-                .replace("__TITLE__", f"{ipo.company} — IPO Intelligence")
+                .replace("__TITLE__", f"{ipo.company} · IPOIntel")
                 .replace("__DESCRIPTION__", f"Evidence-first score, valuation and risk analysis for {ipo.company} ({ipo.country}).")
                 .replace("__CANONICAL__", canonical)
                 .replace("__ID__", str(ipo.id))
