@@ -15,7 +15,7 @@ name: Deploy IPO Intelligence to GitHub Pages
 
 on:
   schedule:
-    - cron: "*/45 * * * *"   # upcoming/current IPO refresh, ~every 45 minutes
+    - cron: "0 */3 * * *"    # upcoming/current IPO refresh every 3 hours (UTC)
     - cron: "17 6 * * *"     # daily full pass (history + model performance), 06:17 UTC
   workflow_dispatch: {}
   push:
