@@ -1,13 +1,14 @@
 from __future__ import annotations
 """'What would change my mind': perturbs the actual scoring inputs and bisects for the
 smallest realistic change that flips the recommendation band. Every threshold reported
-here is read directly off app.scoring.compute_score — never boilerplate text."""
+here is read directly off app.scoring.compute_score, never boilerplate text."""
 from types import SimpleNamespace
 from sqlalchemy import inspect as sa_inspect
 from ..models import IPO
 from ..scoring import compute_score
+from .identity import sanitize_label
 
-BANDS = ["INVEST — STRONG", "INVEST SELECTIVELY", "WATCH / SMALL ALLOCATION", "AVOID / WAIT", "INSUFFICIENT RELIABLE DATA — NO RECOMMENDATION"]
+BANDS = ["INVEST: STRONG", "INVEST SELECTIVELY", "WATCH / SMALL ALLOCATION", "AVOID / WAIT", "INSUFFICIENT RELIABLE DATA: NO RECOMMENDATION"]
 
 def _shadow(ipo: IPO):
     columns = sa_inspect(IPO).mapper.columns.keys()
@@ -15,6 +16,7 @@ def _shadow(ipo: IPO):
     return SimpleNamespace(**data)
 
 def _rank(rec: str) -> int:
+    rec = sanitize_label(rec)
     return BANDS.index(rec) if rec in BANDS else len(BANDS)
 
 def _recommendation_at(ipo: IPO, field: str, value) -> str:
@@ -96,5 +98,5 @@ def analyze(ipo: IPO) -> dict:
         "current_recommendation": base_score["recommendation"], "current_overall_score": base_score["overall_score"],
         "current_confidence": base_score["confidence"],
         "upgrade_conditions": upgrades[:5], "downgrade_conditions": downgrades[:5],
-        "note": "Thresholds are computed by re-running the live scoring model with one input perturbed at a time, holding all else constant; real-world moves rarely happen in isolation." if (upgrades or downgrades) else "No single-lever perturbation within realistic bounds changes the recommendation band — the current verdict is not close to a threshold.",
+        "note": "Thresholds are computed by re-running the live scoring model with one input perturbed at a time, holding all else constant; real-world moves rarely happen in isolation." if (upgrades or downgrades) else "No single-lever perturbation within realistic bounds changes the recommendation band. The current verdict is not close to a threshold.",
     }

@@ -4,12 +4,20 @@
 // recomputes any of that, it only formats what the build already produced).
 (() => {
   'use strict';
-  const $ = s => document.querySelector(s);
-  const fmt = (v, d = 1) => v == null ? '–' : Number(v).toFixed(d);
+  const EM_DASH = String.fromCharCode(8212);
+  const deDash = s => String(s ?? '').split(' ' + EM_DASH + ' ').join(': ').split(EM_DASH).join('-');
+  const esc = s => deDash(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const fmt = (v, d = 1) => v == null || Number.isNaN(Number(v)) ? '–' : Number(v).toFixed(d);
   const cls = v => v == null ? 'neutral' : v >= 70 ? 'good' : v >= 55 ? 'warn' : 'bad';
-  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const money = x => { if (x.price_low == null && x.price_high == null) return '–'; return `${x.currency === 'INR' ? '₹' : '$'}${fmt(x.price_low ?? x.price_high, 0)}${x.price_low && x.price_high && x.price_low !== x.price_high ? '–' + fmt(x.price_high, 0) : ''}`; };
+  const sym = x => x.currency === 'INR' ? '₹' : '$';
+  const money = x => {
+    if (x.price_low == null && x.price_high == null && x.final_price == null) return '–';
+    if (x.price_low == null && x.price_high == null) return `${sym(x)}${fmt(x.final_price, 2)}`;
+    const lo = x.price_low ?? x.price_high, hi = x.price_high ?? x.price_low;
+    return `${sym(x)}${fmt(lo, 0)}${lo !== hi ? '–' + fmt(hi, 0) : ''}`;
+  };
   const sevClass = sv => sv === 'CRITICAL' || sv === 'HIGH' ? 'bad' : sv === 'WATCH' ? 'warn' : 'neutral';
+  const stageClass = s => s === 'Open' ? 'good' : s === 'Closed' ? 'warn' : s === 'Withdrawn' ? 'bad' : 'neutral';
 
   function bars(p) {
     return Object.entries(p || {}).map(([k, v]) => `<div class="barrow"><span>${esc(k)}</span><div class="bar"><i style="width:${Math.max(0, Math.min(100, v))}%"></i></div><b>${fmt(v, 0)}</b></div>`).join('');
@@ -21,7 +29,7 @@
   }
   function contradictionsBlock(items) {
     if (!items || !items.length) return '<p class="muted">No cross-source or cross-field inconsistencies detected in currently structured data.</p>';
-    return items.map(c => `<div class="evidence"><div><b>${esc(c.summary)}</b></div><div class="muted" style="font-size:11px">A: ${esc(c.evidence_a.source)} = ${esc(c.evidence_a.value)} &nbsp;|&nbsp; B: ${esc(c.evidence_b.source)} = ${esc(c.evidence_b.value)}</div></div>`).join('');
+    return items.map(c => `<div class="evidence"><div><b>${esc(c.summary)}</b></div><div class="muted" style="font-size:11px">A: ${esc(c.evidence_a.source)} = ${esc(c.evidence_a.value)} &nbsp;|&nbsp; B: ${esc(c.evidence_b.source)} = ${esc(c.evidence_b.value)}</div>${c.evidence_a.url ? `<a class="kicker" href="${esc(c.evidence_a.url)}" target="_blank" rel="noopener noreferrer">Source A ↗</a>` : ''}</div>`).join('');
   }
   function sensitivityBlock(sn) {
     if (!sn) return '';
@@ -29,46 +37,69 @@
     const down = (sn.downgrade_conditions || []).map(d => `<li><b>${esc(d.lever)}:</b> ${esc(d.detail)}</li>`).join('');
     return `<h3>What would change my mind</h3><p class="kicker">Could upgrade if</p>${up ? `<ul>${up}</ul>` : '<p class="muted">No single realistic lever upgrades this within bounds tested.</p>'}<p class="kicker">Could downgrade if</p>${down ? `<ul>${down}</ul>` : '<p class="muted">No single realistic lever downgrades this within bounds tested.</p>'}<p class="tiny">${esc(sn.note || '')}</p>`;
   }
+  function confidenceBlock(x, s, gate) {
+    const reasons = (x.confidence_reasons || []).filter(r => !String(r).startsWith('ipo_classification'));
+    const gated = /NO RECOMMENDATION/.test(s.recommendation || '');
+    let h = `<h3>Confidence and recommendation gate</h3><div class="notice${gated ? '' : ' ok'}"><b>${gated ? 'Recommendation withheld by design.' : 'Recommendation issued.'}</b> Confidence ${fmt(s.confidence, 0)}%${gate ? ` against a ${gate}% gate` : ''}. ${gated ? 'A verdict is only shown once verified inputs clear the gate; a low-confidence score never produces an investment call.' : ''}</div>`;
+    if (reasons.length) h += `<p class="kicker">Why confidence is ${gated ? 'below the gate' : 'not higher'}</p><ul>${reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>`;
+    return h;
+  }
   function dcfBlock(v) {
     const rv = v && v.reverse_dcf, sc = v && v.scenario_dcf;
     let h = '<h3>Reverse DCF &amp; valuation</h3>';
-    if (rv && rv.available) h += `<div class="evidence"><div><b>Reverse DCF</b> <span class="tier ${rv.expectations_gap === 'EXTREME' || rv.expectations_gap === 'HIGH' ? 'bad' : rv.expectations_gap === 'MODERATE' ? 'warn' : 'neutral'}">${esc(rv.expectations_gap)} expectations gap</span></div><p style="font-size:12px">${esc(rv.narrative)}</p>${(rv.expectations_gap_reasons || []).length ? `<ul>${rv.expectations_gap_reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}</div>`;
-    else h += `<p class="muted">Reverse DCF unavailable: ${esc((rv && rv.reason) || 'insufficient data')}</p>`;
-    if (sc && sc.available) h += '<div class="kv">' + ['bear', 'base', 'bull'].map(k => { const sd = sc.scenarios[k]; return sd && sd.available ? `<div><span>${k[0].toUpperCase() + k.slice(1)}</span><b>${sd.fair_value_per_share != null ? fmt(sd.fair_value_per_share, 2) : '–'} (${sd.upside_vs_ipo_price_pct != null ? fmt(sd.upside_vs_ipo_price_pct, 0) + '%' : '–'})</b></div>` : ''; }).join('') + '</div>';
+    if (rv && rv.available) {
+      const gapCls = rv.expectations_gap === 'EXTREME' || rv.expectations_gap === 'HIGH' ? 'bad' : rv.expectations_gap === 'MODERATE' ? 'warn' : 'neutral';
+      h += `<div class="evidence"><div><b>Reverse DCF</b> <span class="tier ${gapCls}">${esc(rv.expectations_gap)} expectations gap</span></div><p style="font-size:12px">${esc(rv.narrative)}</p>
+      <div class="kv"><div><span>IPO-implied revenue CAGR</span><b>${fmt(rv.implied_revenue_cagr_pct, 1)}%</b></div><div><span>Company historical growth</span><b>${rv.company_historical_growth_pct == null ? 'not disclosed' : fmt(rv.company_historical_growth_pct, 1) + '%'}</b></div><div><span>Peer growth anchor</span><b>${rv.peer_growth_anchor_pct == null ? 'no peer set' : fmt(rv.peer_growth_anchor_pct, 1) + '%'}</b></div><div><span>Margin path</span><b>${fmt(rv.assumed_margin_start_pct, 0)}% to ${fmt(rv.assumed_margin_end_pct, 0)}%</b></div><div><span>WACC</span><b>${fmt(rv.wacc_pct, 1)}%</b></div><div><span>Terminal growth</span><b>${fmt(rv.terminal_growth_pct, 1)}%</b></div></div>
+      ${(rv.expectations_gap_reasons || []).length ? `<ul>${rv.expectations_gap_reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}</div>`;
+    } else h += `<p class="muted">Reverse DCF unavailable: ${esc((rv && rv.reason) || 'insufficient data')}</p>`;
+    if (sc && sc.available) h += '<div class="kv">' + ['bear', 'base', 'bull'].map(k => { const sd = sc.scenarios[k]; return sd && sd.available ? `<div><span>${k[0].toUpperCase() + k.slice(1)} case</span><b>${sd.fair_value_per_share != null ? fmt(sd.fair_value_per_share, 2) : '–'} (${sd.upside_vs_ipo_price_pct != null ? fmt(sd.upside_vs_ipo_price_pct, 0) + '%' : '–'})</b></div>` : ''; }).join('') + '</div>';
     else h += `<p class="muted">Scenario DCF unavailable: ${esc((sc && sc.reason) || 'insufficient data')}</p>`;
     return h;
   }
   function similarBlock(r) {
     let h = '<h3>Similar historical IPOs</h3>';
     if (!r || !r.available) { h += `<p class="muted">${esc((r && r.reason) || 'Not enough comparable history yet.')}</p>`; return h; }
-    h += `<p class="kicker">Match quality: ${esc(r.match_quality)} · features used: ${(r.features_used || []).join(', ')}</p>`;
+    h += `<p class="kicker">Match quality: ${esc(r.match_quality)} · features used: ${esc((r.features_used || []).join(', '))}</p>`;
     if (r.aggregate) h += `<div class="kv"><div><span>Median listing return (n=${r.aggregate.n_with_return})</span><b>${fmt(r.aggregate.median_listing_return_pct, 1)}%</b></div><div><span>Success rate</span><b>${fmt(r.aggregate.success_rate_pct, 0)}%</b></div></div>`;
     h += (r.matches || []).map(m => `<div class="evidence"><div><b>${esc(m.company)}</b> ${m.symbol ? '(' + esc(m.symbol) + ')' : ''}</div><div class="muted" style="font-size:11px">${esc((m.matched_on || []).join(', '))} · listing return: ${m.listing_return_pct != null ? fmt(m.listing_return_pct, 1) + '%' : '–'}</div></div>`).join('');
+    if (!(r.matches || []).length) h += '<p class="muted">Similarity too weak to show comparable listings.</p>';
     return h;
   }
   function changesBlock(r) {
     let h = '<h3>Score history</h3>';
     const t = (r && r.timeline) || [];
-    if (!t.length) { h += '<p class="muted">Only one score snapshot recorded so far.</p>'; return h; }
-    h += t.slice().reverse().map(x => `<div class="evidence"><div><b>${x.at.slice(0, 16).replace('T', ' ')}</b>, overall ${fmt(x.overall, 0)} ${x.delta_overall != null ? `(${x.delta_overall >= 0 ? '+' : ''}${x.delta_overall})` : ''}</div>${x.recommendation_change ? `<div class="muted" style="font-size:11px">${esc(x.recommendation_change)}</div>` : ''}</div>`).join('');
+    if (t.length < 2) { h += '<p class="muted">Only one score snapshot recorded so far.</p>'; return h; }
+    h += t.slice().reverse().map(x => `<div class="evidence"><div><b>${esc(String(x.at).slice(0, 16).replace('T', ' '))}</b>, overall ${fmt(x.overall, 0)} ${x.delta_overall != null ? `(${x.delta_overall >= 0 ? '+' : ''}${x.delta_overall})` : ''}</div>${x.recommendation_change ? `<div class="muted" style="font-size:11px">${esc(x.recommendation_change)}</div>` : ''}${Array.isArray(x.drivers) && x.drivers.length && x.drivers[0].pillar ? `<ul>${x.drivers.map(d => `<li>${esc(d.pillar)}: ${d.delta >= 0 ? '+' : ''}${d.delta}</li>`).join('')}</ul>` : ''}</div>`).join('');
     return h;
+  }
+  function freshnessBlock(x, s) {
+    const f = x.source_freshness || {};
+    const at = f.latest_observation_at ? new Date(f.latest_observation_at) : null;
+    const age = at ? Math.max(0, Math.round((Date.now() - at.getTime()) / 86400000)) : null;
+    return `<h3>Source freshness and model</h3><div class="kv"><div><span>Latest source observation</span><b>${at ? at.toISOString().slice(0, 10) + (age != null ? ` (${age}d ago)` : '') : '–'}</b></div><div><span>Primary-source rows</span><b>${f.primary_source_rows ?? '–'} of ${f.provenance_rows ?? '–'}</b></div><div><span>Model version</span><b>${esc(s.model_version || '–')}</b></div><div><span>Scored at</span><b>${s.created_at ? String(s.created_at).slice(0, 16).replace('T', ' ') + ' UTC' : '–'}</b></div></div>`;
   }
 
   const root = document.getElementById('pagesDetail');
   if (!root) return;
   const id = root.dataset.ipoId;
-  fetch(`/data/ipo/${id}.json`).then(r => { if (!r.ok) throw new Error('not found'); return r.json(); }).then(full => {
+  Promise.all([
+    fetch(`/data/ipo/${id}.json`).then(r => { if (!r.ok) throw new Error('not found'); return r.json(); }),
+    fetch('/data/manifest.json').then(r => r.ok ? r.json() : null).catch(() => null),
+  ]).then(([full, manifest]) => {
     const x = full.detail, s = x.score || {}, prov = x.provenance || [];
-    document.title = `${x.company} · IPOIntel`;
+    const gate = manifest && manifest.summary ? manifest.summary.min_confidence : null;
+    document.title = deDash(`${x.company} · IPOIntel`);
     const dates = [['Filed', x.filing_date], ['Opens', x.open_date], ['Closes', x.close_date], ['Lists', x.listing_date]]
       .filter(([, v]) => v).map(([k, v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join('');
     root.innerHTML = `<header class="notehead">
-  <div class="noteeyebrow">Research note · ${esc(x.country)}</div>
+  <div class="noteeyebrow">Research note · ${esc(x.country)}${x.board && x.board !== 'Mainboard' ? ' · ' + esc(x.board) : ''}${x.exchange ? ' · ' + esc(x.exchange) : ''}</div>
   <h1>${esc(x.company)}</h1>
   <div class="notemeta">
     <div><span>Ticker</span><b>${esc(x.symbol || 'Pending')}</b></div>
-    <div><span>Stage</span><b>${esc(x.status)}</b></div>
+    <div><span>Stage</span><b><span class="tier ${stageClass(x.status)}">${esc(x.status)}</span></b></div>
     <div><span>Price band</span><b>${money(x)}</b></div>
+    ${x.sector && x.sector !== 'Unknown' ? `<div><span>Sector</span><b>${esc(x.sector)}</b></div>` : ''}
     ${dates}
   </div>
 </header>
@@ -79,7 +110,8 @@
   <div><span>Confidence</span><b class="${cls(s.confidence)}">${fmt(s.confidence, 0)}%</b></div>
 </div>
 <div class="scorehero"><div class="ring" style="--p:${s.overall || 0}"><b>${fmt(s.overall, 0)}</b></div><div><div class="kicker">Investment view</div><b style="font-size:19px">${esc(s.recommendation || 'Pending score')}</b><div class="muted" style="font-size:13px;margin-top:5px">${esc(s.horizon || '')}</div><div style="margin-top:11px;display:flex;gap:8px;flex-wrap:wrap"><span class="pill">Listing probability ${fmt(s.listing_probability, 0)}%</span><span class="pill">Long term ${fmt(s.long_term_probability, 0)}%</span></div></div></div>
-<div class="kv"><div><span>Valuation</span><b>${esc(s.valuation || '–')}</b></div><div><span>Confidence</span><b class="${cls(s.confidence)}">${fmt(s.confidence, 0)}%</b></div><div><span>Price band</span><b>${money(x)}</b></div><div><span>Fair range</span><b>${s.fair_low != null ? `${x.currency === 'INR' ? '₹' : '$'}${fmt(s.fair_low, 0)}–${fmt(s.fair_high, 0)}` : '–'}</b></div></div>
+<div class="kv"><div><span>Valuation</span><b>${esc(s.valuation || '–')}</b></div><div><span>Confidence</span><b class="${cls(s.confidence)}">${fmt(s.confidence, 0)}%</b></div><div><span>Price band</span><b>${money(x)}</b></div><div><span>Fair range</span><b>${s.fair_low != null ? `${sym(x)}${fmt(s.fair_low, 0)}–${fmt(s.fair_high, 0)}` : '–'}</b></div></div>
+${confidenceBlock(x, s, gate)}
 <h3>Score decomposition</h3>${bars(s.pillars)}
 <h3>Why it scores this way</h3>${(s.rationale || []).length ? `<ul>${s.rationale.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : '<p class="muted">No strong positive evidence has cleared the configured thresholds yet.</p>'}
 <h3>Risks</h3>${(s.risks || []).length ? `<ul>${s.risks.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : '<p class="muted">No model-level red flags recorded.</p>'}
@@ -89,9 +121,10 @@ ${sensitivityBlock(x.sensitivity)}
 ${dcfBlock(full.valuation)}
 ${similarBlock(full.similar)}
 ${changesBlock(full.changes)}
-<h3>Evidence stack</h3>${prov.length ? prov.slice(0, 24).map(p => `<div class="evidence"><div><span class="tier">Tier ${p.tier}</span> <b>${esc(p.field)}</b>${p.conflict ? ' <span class="tier bad">CONFLICT</span>' : ''}</div><div class="muted" style="font-size:11px">${esc(p.source)} · ${esc(p.value)}</div>${p.url ? `<a class="kicker" href="${esc(p.url)}" target="_blank" rel="noopener">Open source ↗</a>` : ''}</div>`).join('') : '<p class="muted">No field-level provenance stored yet.</p>'}
+${freshnessBlock(x, s)}
+<h3>Evidence stack</h3>${prov.length ? prov.slice(0, 24).map(p => `<div class="evidence"><div><span class="tier">Tier ${p.tier}</span> <b>${esc(p.field)}</b>${p.conflict ? ' <span class="tier bad">CONFLICT</span>' : ''}</div><div class="muted" style="font-size:11px">${esc(p.source)} · ${esc(p.value)} · ${esc(String(p.observed_at || '').slice(0, 10))}</div>${p.url ? `<a class="kicker" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">Open source ↗</a>` : ''}</div>`).join('') : '<p class="muted">No field-level provenance stored yet.</p>'}
 <p class="tiny" style="margin-top:24px">Research and decision support only. Not investment advice. No guaranteed outcomes.</p>`;
   }).catch(() => {
-    root.innerHTML = '<div class="empty">Data temporarily unavailable for this IPO.</div>';
+    root.innerHTML = '<div class="empty">Data temporarily unavailable for this IPO. <a href="/dashboard/">Open the dashboard</a>.</div>';
   });
 })();

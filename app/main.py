@@ -29,6 +29,8 @@ from .services import similarity as similarity_svc
 from .services import sensitivity as sensitivity_svc
 from .services import changes as changes_svc
 from .services import walkforward as walkforward_svc
+from .services.identity import sanitize_label, ACTIVE_STATUSES
+from .scoring import confidence_reasons
 
 logging.basicConfig(level=logging.INFO,format="%(message)s")
 S=get_settings(); validate_production_settings(S); BASE=Path(__file__).parent; STATIC=BASE/"static"
@@ -115,7 +117,7 @@ def latest_score(db,ipo_id):return db.scalar(select(ScoreSnapshot).where(ScoreSn
 def perf(db,ipo_id):return db.scalar(select(PerformanceSnapshot).where(PerformanceSnapshot.ipo_id==ipo_id).order_by(PerformanceSnapshot.created_at.desc()).limit(1))
 def ipo_json(db,ipo):
     sc=latest_score(db,ipo.id);pf=perf(db,ipo.id)
-    return {"id":ipo.id,"company":ipo.company,"symbol":ipo.symbol,"country":ipo.country,"exchange":ipo.exchange,"board":ipo.board,"sector":ipo.sector,"status":ipo.status,"filing_date":ipo.filing_date,"open_date":ipo.open_date,"close_date":ipo.close_date,"listing_date":ipo.listing_date,"currency":ipo.currency,"price_low":ipo.price_low,"price_high":ipo.price_high,"final_price":ipo.final_price,"issue_size_m":ipo.issue_size_m,"lot_size":ipo.lot_size,"qib_sub":ipo.qib_sub,"nii_sub":ipo.nii_sub,"retail_sub":ipo.retail_sub,"total_sub":ipo.total_sub,"gmp_pct":ipo.gmp_pct,"filing_url":ipo.filing_url,"registrar":ipo.registrar,"allotment_url":ipo.allotment_url,"updated_at":ipo.updated_at.isoformat() if ipo.updated_at else None,"score":None if not sc else {"overall":sc.overall_score,"listing":sc.listing_score,"long_term":sc.long_term_score,"confidence":sc.confidence,"listing_probability":sc.listing_gain_probability,"long_term_probability":sc.long_term_outperform_probability,"recommendation":sc.recommendation,"horizon":sc.horizon,"valuation":sc.valuation_label,"fair_low":sc.fair_value_low,"fair_high":sc.fair_value_high,"pillars":sc.pillars,"rationale":sc.rationale,"risks":sc.risks,"what_changes_verdict":sc.what_changes_verdict,"model_version":sc.model_version,"created_at":sc.created_at.isoformat()},"performance":None if not pf else {"as_of":pf.as_of_date,"close":pf.close_price,"listing_return_pct":pf.listing_return_pct,"return_1m_pct":pf.return_1m_pct,"return_6m_pct":pf.return_6m_pct,"return_12m_pct":pf.return_12m_pct,"source":pf.source_name}}
+    return {"id":ipo.id,"company":ipo.company,"symbol":ipo.symbol,"isin":ipo.isin,"country":ipo.country,"exchange":ipo.exchange,"board":ipo.board,"sector":ipo.sector,"status":ipo.status,"filing_date":ipo.filing_date,"open_date":ipo.open_date,"close_date":ipo.close_date,"listing_date":ipo.listing_date,"currency":ipo.currency,"price_low":ipo.price_low,"price_high":ipo.price_high,"final_price":ipo.final_price,"issue_size_m":ipo.issue_size_m,"lot_size":ipo.lot_size,"qib_sub":ipo.qib_sub,"nii_sub":ipo.nii_sub,"retail_sub":ipo.retail_sub,"total_sub":ipo.total_sub,"gmp_pct":ipo.gmp_pct,"filing_url":ipo.filing_url,"registrar":ipo.registrar,"allotment_url":ipo.allotment_url,"updated_at":ipo.updated_at.isoformat() if ipo.updated_at else None,"score":None if not sc else {"overall":sc.overall_score,"listing":sc.listing_score,"long_term":sc.long_term_score,"confidence":sc.confidence,"listing_probability":sc.listing_gain_probability,"long_term_probability":sc.long_term_outperform_probability,"recommendation":sanitize_label(sc.recommendation),"horizon":sanitize_label(sc.horizon),"valuation":sc.valuation_label,"fair_low":sc.fair_value_low,"fair_high":sc.fair_value_high,"pillars":sc.pillars,"rationale":sc.rationale,"risks":sc.risks,"what_changes_verdict":sc.what_changes_verdict,"model_version":sc.model_version,"created_at":sc.created_at.isoformat()},"performance":None if not pf else {"as_of":pf.as_of_date,"close":pf.close_price,"listing_return_pct":pf.listing_return_pct,"return_1m_pct":pf.return_1m_pct,"return_6m_pct":pf.return_6m_pct,"return_12m_pct":pf.return_12m_pct,"source":pf.source_name}}
 
 @app.get("/")
 def landing():return FileResponse(STATIC/"index.html")
@@ -278,7 +280,7 @@ def health_ready(db:Session=Depends(db_dep)):
 
 @app.post("/api/waitlist",response_model=WaitlistOut)
 def waitlist(payload:WaitlistIn,request:Request,db:Session=Depends(db_dep)):
-    if payload.website:return WaitlistOut(ok=True,message="Thanks — you're on the list.")
+    if payload.website:return WaitlistOut(ok=True,message="Thanks, you're on the list.")
     if not payload.consent:raise HTTPException(400,"Consent is required to join the update list.")
     ip=request.client.host if request.client else "unknown"
     if rate_limited(rate,f"waitlist:{ip}",6,60):raise HTTPException(429,"Too many signup attempts. Try again shortly.")
@@ -323,7 +325,7 @@ def public_highlights(db:Session=Depends(db_dep)):
     'Upcoming now' strip and hero product card). Deliberately trimmed - no
     fundamentals, provenance, or rationale, none of which is available
     without a beta session (see require_active_lead on /api/ipos/*)."""
-    stmt=select(IPO).where(IPO.status.in_(["Open","Upcoming","Filed"])).order_by(IPO.updated_at.desc()).limit(5)
+    stmt=select(IPO).where(IPO.status.in_(list(ACTIVE_STATUSES))).order_by(IPO.updated_at.desc()).limit(5)
     rows=db.scalars(stmt).all()
     out=[]
     for ipo in rows:
@@ -403,8 +405,8 @@ async def resend_webhook(request:Request,db:Session=Depends(db_dep)):
 
 @app.get("/api/summary")
 def summary(db:Session=Depends(db_dep),_lead:WaitlistLead=Depends(require_active_lead)):
-    total=db.scalar(select(func.count()).select_from(IPO)) or 0
-    open_n=db.scalar(select(func.count()).select_from(IPO).where(IPO.status.in_(["Open","Upcoming","Filed"]))) or 0
+    total=db.scalar(select(func.count()).select_from(IPO).where(IPO.status!="Not IPO")) or 0
+    open_n=db.scalar(select(func.count()).select_from(IPO).where(IPO.status.in_(list(ACTIVE_STATUSES)))) or 0
     listed=db.scalar(select(func.count()).select_from(IPO).where(IPO.status=="Listed")) or 0
     last=db.scalar(select(IngestionRun).order_by(IngestionRun.started_at.desc()).limit(1))
     high_conf=db.scalar(select(func.count()).select_from(ScoreSnapshot).where(ScoreSnapshot.confidence>=S.min_recommendation_confidence)) or 0
@@ -415,7 +417,10 @@ def ipos(country:str="all",status:str="all",q:str="",limit:int=Query(100,ge=1,le
     stmt=select(IPO)
     if country!="all":stmt=stmt.where(IPO.country==country)
     if status!="all":stmt=stmt.where(IPO.status==status)
-    if q:stmt=stmt.where(or_(IPO.company.ilike(f"%{q}%"),IPO.symbol.ilike(f"%{q}%")))
+    else:stmt=stmt.where(IPO.status!="Not IPO")  # non-IPO registrations are never listed as IPOs
+    if q:
+        like=f"%{q}%"
+        stmt=stmt.where(or_(IPO.company.ilike(like),IPO.symbol.ilike(like),IPO.exchange.ilike(like),IPO.sector.ilike(like),IPO.country.ilike(like),IPO.board.ilike(like),IPO.isin.ilike(like)))
     rows=db.scalars(stmt.order_by(IPO.updated_at.desc()).limit(limit)).all()
     return [ipo_json(db,x) for x in rows]
 
@@ -432,6 +437,11 @@ def ipo_detail(ipo_id:int,db:Session=Depends(db_dep),_lead:WaitlistLead=Depends(
     out["red_flags"]={"summary":redflags_svc.summarize(flags),"flags":flags}
     out["contradictions"]=contradictions_svc.evaluate(ipo,ipo.provenance)
     out["sensitivity"]=sensitivity_svc.analyze(ipo)
+    conflicts=sum(1 for p in ipo.provenance if p.is_conflict)
+    out["confidence_reasons"]=confidence_reasons(ipo,conflicts)
+    out["data_flags"]=list(ipo.data_flags or [])
+    latest_obs=max((p.observed_at for p in ipo.provenance if p.observed_at),default=None)
+    out["source_freshness"]={"latest_observation_at":latest_obs.isoformat() if latest_obs else None,"provenance_rows":len(ipo.provenance),"primary_source_rows":sum(1 for p in ipo.provenance if p.source_tier==1)}
     return out
 
 @app.get("/api/ipos/{ipo_id}/changes")
@@ -543,7 +553,7 @@ def track_record(limit:int=100,db:Session=Depends(db_dep),_lead:WaitlistLead=Dep
             "model_version":sc.model_version,"feature_schema_version":sc.feature_schema_version,
             "overall_score":sc.overall_score,"listing_score":sc.listing_score,"long_term_score":sc.long_term_score,
             "listing_gain_probability":sc.listing_gain_probability,"long_term_outperform_probability":sc.long_term_outperform_probability,
-            "recommendation":sc.recommendation,"valuation_label":sc.valuation_label,"confidence":sc.confidence,
+            "recommendation":sanitize_label(sc.recommendation),"valuation_label":sc.valuation_label,"confidence":sc.confidence,
             "outcome_known":ipo.status=="Listed",
             "outcome": None if not outcome else {
                 "listing_open_return_pct":outcome.listing_open_return_pct,"listing_close_return_pct":outcome.listing_close_return_pct,

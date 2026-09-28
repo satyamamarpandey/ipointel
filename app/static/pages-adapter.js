@@ -31,12 +31,14 @@
     note.className = 'pill';
     note.style.display = 'none';
     countPill.insertAdjacentElement('afterend', note);
-    fetch(DATA + 'manifest.json').then(r => r.json()).then(m => {
+    getJSON(DATA + 'manifest.json').then(m => {
       const fmt = d => new Date(d).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
       note.textContent = `Past 5 years: ${fmt(m.history_window_start)} to ${fmt(m.history_window_end)}`;
       const sync = () => { note.style.display = statusSelect.value === 'Listed' ? '' : 'none'; };
       statusSelect.addEventListener('change', sync);
       sync();
+      const snap = document.getElementById('buildStamp');
+      if (snap && m.generated_at) snap.textContent = `Data built ${new Date(m.generated_at).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
     }).catch(() => {});
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initHistoryWindowNote);
@@ -51,7 +53,7 @@
   if (navigator.sendBeacon) {
     const realSendBeacon = navigator.sendBeacon.bind(navigator);
     navigator.sendBeacon = (url, data) => {
-      try { if (new URL(url, location.origin).pathname === '/api/events') return true; } catch (e) {}
+      try { if (new URL(url, location.origin).pathname === '/api/events') return true; } catch (e) { /* not a URL */ }
       return realSendBeacon(url, data);
     };
   }
@@ -69,7 +71,7 @@
         }, 0);
         return stub;
       }
-    } catch (e) {}
+    } catch (e) { /* not a URL */ }
     return new RealEventSource(url, opts);
   };
 
@@ -78,11 +80,12 @@
 
   async function getJSON(path) {
     if (cache[path]) return cache[path];
-    const r = await realFetch(path);
-    if (!r.ok) throw new Error('missing static data file: ' + path);
-    const j = await r.json();
-    cache[path] = j;
-    return j;
+    const p = realFetch(path).then(async r => {
+      if (!r.ok) { delete cache[path]; throw new Error('missing static data file: ' + path); }
+      return r.json();
+    });
+    cache[path] = p;
+    return p;
   }
 
   const loadUpcoming = async () => {
@@ -93,11 +96,19 @@
     const [india, us] = await Promise.all([getJSON(DATA + 'history/india-5y.json'), getJSON(DATA + 'history/us-5y.json')]);
     return india.concat(us);
   };
+  const loadWithdrawn = () => getJSON(DATA + 'withdrawn.json').catch(() => []);
 
+  // Mirrors the server's /api/ipos?q= behaviour: issuer, ticker, exchange,
+  // sector, country, board and ISIN. Pure in-memory filtering over a few
+  // hundred rows - fast enough that no index is needed.
+  const SEARCH_FIELDS = ['company', 'symbol', 'exchange', 'sector', 'country', 'board', 'isin'];
   function filterRows(rows, country, q, limit) {
     let out = rows;
     if (country && country !== 'all') out = out.filter(x => x.country === country);
-    if (q) { const needle = q.toLowerCase(); out = out.filter(x => (x.company || '').toLowerCase().includes(needle) || (x.symbol || '').toLowerCase().includes(needle)); }
+    if (q) {
+      const needle = q.toLowerCase();
+      out = out.filter(x => SEARCH_FIELDS.some(f => String(x[f] || '').toLowerCase().includes(needle)));
+    }
     return out.slice(0, limit || 300);
   }
 
@@ -108,7 +119,7 @@
     if (!endpoint) {
       // Honest configuration state, never a fake success message (see
       // spec: "DO NOT show a fake success message" if the endpoint is unset).
-      return json({ detail: "Early access is not wired up in this preview build yet: the Google Apps Script endpoint has not been deployed. See docs/GITHUB_PAGES.md." }, 501);
+      return json({ detail: "Early access signup is not connected on this static build yet. The dashboard is fully public; no signup is needed to use it." }, 501);
     }
     try {
       const r = await realFetch(endpoint, { method: 'POST', body: init && init.body, headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
@@ -133,7 +144,7 @@
       if (path === '/api/events' && method === 'POST') return json({ ok: true }); // analytics: no server in static mode, swallow
       if (path === '/api/public/highlights') return json(await getJSON(DATA + 'highlights.json'));
       if (path === '/api/waitlist' && method === 'POST') return handleWaitlist(init);
-      if (path === '/api/summary') { const m = await getJSON(DATA + 'manifest.json'); return json(m.summary); }
+      if (path === '/api/summary') { const m = await getJSON(DATA + 'manifest.json'); return json({ ...m.summary, pipeline_status: m.pipeline_status, generated_at: m.generated_at }); }
 
       if (path === '/api/ipos' && method === 'GET') {
         const country = params.get('country') || 'all';
@@ -143,17 +154,19 @@
         // Deliberate Pages-mode default: an unfiltered load ("All stages")
         // shows the upcoming/current universe, not five years of history -
         // the dashboard's own "Listed" filter is how a visitor reaches the
-        // historical set. This differs from server mode's literal "all IPOs
-        // ever" default on purpose (see docs/GITHUB_PAGES.md).
+        // historical set. Withdrawn offerings live in their own file and are
+        // never mixed into the active counts.
         let rows;
         if (status === 'Listed') rows = await loadHistory();
+        else if (status === 'Withdrawn') rows = await loadWithdrawn();
         else if (status === 'all') rows = await loadUpcoming();
         else rows = (await loadUpcoming()).filter(x => x.status === status);
         return json(filterRows(rows, country, q, limit));
       }
       const ipoMatch = path.match(/^\/api\/ipos\/(\d+)(\/(valuation|similar|changes))?$/);
       if (ipoMatch && method === 'GET') {
-        const full = await getJSON(DATA + 'ipo/' + ipoMatch[1] + '.json');
+        let full;
+        try { full = await getJSON(DATA + 'ipo/' + ipoMatch[1] + '.json'); } catch (e) { return json({ detail: 'IPO not found' }, 404); }
         const sub = ipoMatch[3];
         if (!sub) return json(full.detail);
         return json(full[sub]);
@@ -164,7 +177,11 @@
       // for a rejected event) rather than letting it fall through to the
       // static host and surface as a console error.
       if (path === '/api/events') return json({ ok: false });
-      if (path === '/api/performance') return json(await loadHistory());
+      if (path === '/api/performance') {
+        const country = params.get('country') || 'all';
+        const limit = parseInt(params.get('limit') || '500', 10);
+        return json(filterRows(await loadHistory(), country, '', limit));
+      }
       if (path === '/api/source-health') return json(await getJSON(DATA + 'source-health.json'));
       if (path === '/api/backtest') return json(await getJSON(DATA + 'backtest.json'));
       if (path === '/api/track-record') return json(await getJSON(DATA + 'track-record.json'));

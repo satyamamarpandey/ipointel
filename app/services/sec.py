@@ -1,5 +1,5 @@
 from __future__ import annotations
-import re, xml.etree.ElementTree as ET
+import re, time, xml.etree.ElementTree as ET
 import httpx
 from .net_safety import validate_outbound_url
 
@@ -7,8 +7,43 @@ BASE="https://www.sec.gov"
 DATA="https://data.sec.gov"
 _ALLOWED_HOSTS={"www.sec.gov","sec.gov","data.sec.gov"}
 
+# SEC fair-access policy: identify yourself, stay under 10 requests/second,
+# back off on 403/429. We never retry aggressively - three attempts with
+# exponential backoff, then give up and let the caller record a warning.
+_RETRY_STATUSES={403,429,500,502,503,504}
+_MAX_ATTEMPTS=3
+_BACKOFF_BASE_SECONDS=1.0
+_MIN_INTERVAL_SECONDS=0.11  # ~9 req/s ceiling across the process
+_last_request_at=0.0
+
+NON_IPO_FLAG_PREFIX="non_ipo_registration"
+# Appended to data_flags once the IPO-vs-not classification has actually run
+# for a filing, so the next refresh can skip re-downloading an unchanged one.
+CLASSIFIED_MARKER="ipo_classification: checked"
+PERIODIC_FORMS={"10-K","10-Q","10-K/A","10-Q/A","20-F","20-F/A","40-F","40-F/A"}
+
 def _client(ua:str):
-    return httpx.Client(headers={"User-Agent":ua,"Accept-Language":"en-US,en;q=0.9"},timeout=20,follow_redirects=True)
+    return httpx.Client(headers={"User-Agent":ua,"Accept-Language":"en-US,en;q=0.9","Accept-Encoding":"gzip, deflate"},timeout=httpx.Timeout(20.0,connect=10.0),follow_redirects=True)
+
+def _get(c:httpx.Client,url:str,sleep=time.sleep)->httpx.Response:
+    """GET with SEC-polite pacing and bounded exponential backoff. Raises the
+    last httpx error if every attempt fails; never loops indefinitely."""
+    global _last_request_at
+    last_exc:Exception|None=None
+    for attempt in range(_MAX_ATTEMPTS):
+        wait=_MIN_INTERVAL_SECONDS-(time.monotonic()-_last_request_at)
+        if wait>0:sleep(wait)
+        try:
+            _last_request_at=time.monotonic()
+            r=c.get(url)
+            if r.status_code in _RETRY_STATUSES and attempt<_MAX_ATTEMPTS-1:
+                sleep(_BACKOFF_BASE_SECONDS*(2**attempt));last_exc=httpx.HTTPStatusError(f"HTTP {r.status_code}",request=r.request,response=r);continue
+            r.raise_for_status();return r
+        except (httpx.TimeoutException,httpx.TransportError) as e:
+            last_exc=e
+            if attempt<_MAX_ATTEMPTS-1:sleep(_BACKOFF_BASE_SECONDS*(2**attempt))
+    assert last_exc is not None
+    raise last_exc
 
 def parse_atom(xml_text:str, form:str):
     root=ET.fromstring(xml_text); ns={"a":"http://www.w3.org/2005/Atom"}; out=[]
@@ -35,7 +70,7 @@ def fetch_recent_ipos(user_agent:str, count=100):
         for form in ("S-1","F-1"):
             url=f"{BASE}/cgi-bin/browse-edgar?action=getcurrent&type={form}&company=&dateb=&owner=include&start=0&count={count}&output=atom"
             try:
-                r=c.get(url); r.raise_for_status()
+                r=_get(c,url)
                 for row in parse_atom(r.text,form):
                     key=(row["company"].lower(),row["cik"])
                     if key not in seen: seen.add(key); rows.append(row)
@@ -61,11 +96,11 @@ def filing_text(url:str,user_agent:str):
     # (parse_atom above), not a hardcoded literal - validate before fetching.
     validate_outbound_url(url,allowed_hosts=_ALLOWED_HOSTS)
     with _client(user_agent) as c:
-        r=c.get(url); r.raise_for_status(); return re.sub(r"<[^>]+>"," ",r.text)
+        r=_get(c,url); return re.sub(r"<[^>]+>"," ",r.text)
 
 def fetch_companyfacts(cik:str,user_agent:str):
     with _client(user_agent) as c:
-        r=c.get(f"{DATA}/api/xbrl/companyfacts/CIK{str(cik).zfill(10)}.json"); r.raise_for_status(); return r.json()
+        r=_get(c,f"{DATA}/api/xbrl/companyfacts/CIK{str(cik).zfill(10)}.json"); return r.json()
 
 def latest_fact(facts:dict, concepts:list[str], taxonomies=("us-gaap","ifrs-full")):
     candidates=[]
@@ -79,7 +114,24 @@ def latest_fact(facts:dict, concepts:list[str], taxonomies=("us-gaap","ifrs-full
     if not candidates:return None
     candidates.sort(key=lambda x:(x.get("filed",""),x.get("end","")),reverse=True)
     try:return float(candidates[0]["val"])/1_000_000
-    except:return None
+    except (TypeError,ValueError,KeyError):return None
+
+def is_ipo_registration_text(text:str)->bool:
+    """An S-1/F-1 for an initial public offering says so, always. A resale
+    registration by an already-public company, a follow-on or a shelf does
+    not describe itself as an initial public offering."""
+    return "initial public offering" in text.lower()
+
+def already_reporting(facts:dict)->bool:
+    """True when the XBRL company-facts history contains a periodic report
+    (10-K/10-Q/20-F/40-F): the registrant already has public securities and
+    this S-1 is not its IPO. A genuine pre-IPO filer has no such history."""
+    for tax in facts.get("facts",{}).values():
+        for concept in tax.values():
+            for vals in concept.get("units",{}).values():
+                for x in vals:
+                    if x.get("form") in PERIODIC_FORMS:return True
+    return False
 
 def enrich(row:dict,user_agent:str):
     out=dict(row); flags=[]
@@ -90,6 +142,10 @@ def enrich(row:dict,user_agent:str):
             lowtxt=txt.lower()
             out["dual_class"] = ("dual class" in lowtxt or "dual-class" in lowtxt) if "class" in lowtxt else None
             m=re.search(r"lock-up[^.]{0,120}?([0-9]{2,3})\s+days",lowtxt,re.I); out["lockup_days"]=int(m.group(1)) if m else None
+            if len(lowtxt)>2000:
+                flags.append(CLASSIFIED_MARKER)
+                if not is_ipo_registration_text(lowtxt):
+                    flags.append(f"{NON_IPO_FLAG_PREFIX}: filing never describes an initial public offering")
         except Exception as e: flags.append(f"SEC filing enrichment failed: {type(e).__name__}")
     if row.get("cik"):
         try:
@@ -100,24 +156,37 @@ def enrich(row:dict,user_agent:str):
             out["cash_m"]=latest_fact(f,["CashAndCashEquivalentsAtCarryingValue","CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"])
             out["debt_m"]=latest_fact(f,["LongTermDebtCurrent","LongTermDebtNoncurrent","LongTermDebt"])
             out["post_issue_shares_m"]=latest_fact(f,["EntityCommonStockSharesOutstanding"],taxonomies=("dei",))
+            if already_reporting(f):
+                flags.append(f"{NON_IPO_FLAG_PREFIX}: registrant already files periodic reports (10-K/10-Q/20-F)")
+        except httpx.HTTPStatusError as e:
+            # 404 from companyfacts is the normal case for a first-time filer
+            # (no XBRL history yet) - not an enrichment failure.
+            if e.response is None or e.response.status_code!=404:flags.append(f"SEC XBRL enrichment failed: {type(e).__name__}")
         except Exception as e: flags.append(f"SEC XBRL enrichment failed: {type(e).__name__}")
     out["data_flags"]=flags; return out
 
-def parse_master_index(text:str):
-    out=[]
+def parse_master_index_forms(text:str,forms:tuple[str,...]=("424B4","RW")):
+    """Rows of the EDGAR daily master index grouped by form type. Only the
+    requested forms are returned (default: priced prospectuses and
+    registration withdrawal requests)."""
+    out={f:[] for f in forms}
     for line in text.splitlines():
         if "|" not in line:continue
         parts=line.split("|")
         if len(parts)<5:continue
         cik,name,form,date,filename=parts[:5]
-        if form.strip()=="424B4":out.append({"cik":cik.strip(),"company":name.strip(),"filing_date":date.strip(),"filename":filename.strip(),"filing_url":"https://www.sec.gov/Archives/"+filename.strip().lstrip("/")})
+        form=form.strip()
+        if form in out:out[form].append({"cik":cik.strip(),"company":name.strip(),"filing_date":date.strip(),"filename":filename.strip(),"form":form,"filing_url":"https://www.sec.gov/Archives/"+filename.strip().lstrip("/")})
     return out
+
+def parse_master_index(text:str):
+    return parse_master_index_forms(text,("424B4",))["424B4"]
 
 def master_index_for_date(day,user_agent:str):
     q=(day.month-1)//3+1
     url=f"https://www.sec.gov/Archives/edgar/daily-index/{day.year}/QTR{q}/master.{day.strftime('%Y%m%d')}.idx"
     with _client(user_agent) as c:
-        r=c.get(url);r.raise_for_status();return parse_master_index(r.text),url
+        r=_get(c,url);return parse_master_index_forms(r.text),url
 
 def parse_priced_ipo(text:str):
     flat=re.sub(r"\s+"," ",text)

@@ -42,11 +42,11 @@ def welcome_email(base_url: str, name: str, referral_code: str, markets: str, to
     market_label = {"india": "India", "us": "United States", "both": "India + United States"}.get(markets, "India + United States")
     greeting = f"Hi {esc(name)}," if name else "Hi,"
     body = f"""<p style="margin:0 0 14px;">{greeting}</p>
-<p style="margin:0 0 14px;">You're on the early-access list for the <b>IPO Intelligence Terminal</b> — an evidence-first India + U.S. IPO research platform. Your focus: <b>{esc(market_label)}</b>.</p>
-<p style="margin:0 0 14px;">Every IPO score comes with field-level source provenance, a confidence gate that refuses to recommend on thin evidence, and separate listing-gain vs long-term signals. We'll email you when something material changes on an IPO you'd care about — not on every tick.</p>
+<p style="margin:0 0 14px;">You're on the early-access list for the <b>IPO Intelligence Terminal</b>, an evidence-first India + U.S. IPO research platform. Your focus: <b>{esc(market_label)}</b>.</p>
+<p style="margin:0 0 14px;">Every IPO score comes with field-level source provenance, a confidence gate that refuses to recommend on thin evidence, and separate listing-gain vs long-term signals. We'll email you when something material changes on an IPO you'd care about, not on every tick.</p>
 <p style="margin:0 0 14px;">Your referral code: <b style="font-family:monospace;background:#f1f4f6;padding:2px 6px;border-radius:4px;">{esc(referral_code)}</b></p>
 <p style="margin:0 0 22px;"><a href="{esc(base_url)}/app" style="display:inline-block;background:{ACCENT};color:#ffffff;text-decoration:none;padding:11px 20px;border-radius:8px;font-weight:600;">Open the live dashboard</a></p>
-<p style="margin:0;color:#5b6b78;font-size:12px;">No system can promise IPO returns. We measure and publish our own model's track record rather than claim certainty — see the Model Performance tab.</p>"""
+<p style="margin:0;color:#5b6b78;font-size:12px;">No system can promise IPO returns. We measure and publish our own model's track record rather than claim certainty, see the Model Performance tab.</p>"""
     text = (f"{greeting}\n\nYou're on the early-access list for the IPO Intelligence Terminal ({market_label}).\n"
             f"Referral code: {referral_code}\nDashboard: {base_url}/app\n\n"
             f"Manage preferences: {prefs}\nUnsubscribe: {unsub}\n\n"
@@ -57,7 +57,7 @@ def login_link_email(base_url: str, login_url: str, token: str) -> tuple[str, st
     unsub, prefs = _urls(base_url, token)
     body = f"""<p style="margin:0 0 14px;">Click below to sign in to the IPO Intelligence Terminal. This link works once and expires in 15 minutes.</p>
 <p style="margin:0 0 22px;"><a href="{esc(login_url)}" style="display:inline-block;background:{ACCENT};color:#ffffff;text-decoration:none;padding:11px 20px;border-radius:8px;font-weight:600;">Sign in</a></p>
-<p style="margin:0;color:#5b6b78;font-size:12px;">If you didn't request this, you can ignore this email — no account action will be taken.</p>"""
+<p style="margin:0;color:#5b6b78;font-size:12px;">If you didn't request this, you can ignore this email; no account action will be taken.</p>"""
     text = f"Sign in to IPO Intelligence Terminal: {login_url}\n\nThis link works once and expires in 15 minutes. If you didn't request this, ignore this email."
     return "Your IPO Intelligence sign-in link", _shell("Your one-time sign-in link (expires in 15 minutes).", body, unsub, prefs), text
 
@@ -69,10 +69,10 @@ def alert_email(base_url: str, kind: str, company: str, country: str, prev, cur,
     unsub, prefs = _urls(base_url, token)
     ipo_id = cur.get("ipo_id")
     if kind == "recommendation":
-        headline = f'{esc(prev.get("recommendation") or "—")} → {esc(cur["recommendation"])}'
+        headline = f'{esc(prev.get("recommendation") or "n/a")} → {esc(cur["recommendation"])}'
         subject = f"{company}: recommendation changed to {cur['recommendation']}"
     elif kind == "valuation":
-        headline = f'{esc(prev.get("valuation") or "—")} → {esc(cur["valuation"])}'
+        headline = f'{esc(prev.get("valuation") or "n/a")} → {esc(cur["valuation"])}'
         subject = f"{company}: valuation now {cur['valuation']}"
     elif kind == "red_flag":
         headline = "New critical red flag detected"
@@ -108,7 +108,7 @@ def digest_email(base_url: str, india_rows: list[dict], us_rows: list[dict], cha
         if not rows:
             return '<p style="color:#7b8a97;margin:0 0 12px;">Nothing cleared the bar this week.</p>'
         items = "".join(
-            f'<div style="padding:8px 0;border-bottom:1px solid #eef1f3;"><b>{esc(r["company"])}</b> — overall {r["overall"]:.0f}, '
+            f'<div style="padding:8px 0;border-bottom:1px solid #eef1f3;"><b>{esc(r["company"])}</b>: overall {r["overall"]:.0f}, '
             f'listing {r["listing"]:.0f}, long term {r["long_term"]:.0f}, {esc(r["valuation"])}, confidence {r["confidence"]:.0f}%</div>'
             for r in rows[:5])
         return f'<div style="margin:0 0 16px;">{items}</div>'
@@ -117,8 +117,8 @@ def digest_email(base_url: str, india_rows: list[dict], us_rows: list[dict], cha
             return '<p style="color:#7b8a97;margin:0 0 12px;">None this week.</p>'
         return '<ul style="margin:0 0 16px;padding-left:18px;">' + "".join(f'<li style="margin:3px 0;">{esc(r.get(key, r))}</li>' for r in rows[:6]) + "</ul>"
     body = f"""<h2 style="margin:0 0 14px;">Weekly IPO digest</h2>
-<p style="margin:0 0 4px;font-weight:700;font-size:13px;">Best opportunities — India</p>{row_block(india_rows)}
-<p style="margin:0 0 4px;font-weight:700;font-size:13px;">Best opportunities — United States</p>{row_block(us_rows)}
+<p style="margin:0 0 4px;font-weight:700;font-size:13px;">Best opportunities: India</p>{row_block(india_rows)}
+<p style="margin:0 0 4px;font-weight:700;font-size:13px;">Best opportunities: United States</p>{row_block(us_rows)}
 <p style="margin:0 0 4px;font-weight:700;font-size:13px;">Biggest score changes this week</p>{line_list(changes, "label")}
 <p style="margin:0 0 4px;font-weight:700;font-size:13px;">New filings</p>{line_list(new_filings)}
 <p style="margin:0 0 4px;font-weight:700;font-size:13px;">Critical red flags detected</p>{line_list(red_flags, "label")}

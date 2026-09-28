@@ -16,4 +16,4 @@ def summarize(db:Session):
         if score and perf and perf.listing_return_pct is not None:
             y=1 if perf.listing_return_pct>0 else 0;samples.append((score.listing_gain_probability,y));top.append((score.overall_score,perf.listing_return_pct))
     top.sort(reverse=True); top10=top[:max(1,len(top)//10)] if top else []
-    return {"sample_size":len(samples),"brier_score":round(brier(samples),4) if samples else None,"top_decile_avg_listing_return_pct":round(sum(x[1] for x in top10)/len(top10),2) if top10 else None,"status":"calibrated" if len(samples)>=100 else "insufficient sample — calibration display only"}
+    return {"sample_size":len(samples),"brier_score":round(brier(samples),4) if samples else None,"top_decile_avg_listing_return_pct":round(sum(x[1] for x in top10)/len(top10),2) if top10 else None,"status":"evaluated: sample large enough to report" if len(samples)>=100 else "insufficient sample: calibration display only"}

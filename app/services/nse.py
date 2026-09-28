@@ -13,6 +13,10 @@ def _num(v):
     if isinstance(v,(int,float)):return float(v)
     m=re.search(r"-?\d+(?:\.\d+)?",str(v).replace(",","").replace("₹",""));return float(m.group()) if m else None
 
+def _board(*hints)->str:
+    joined=" ".join(str(h or "") for h in hints).lower()
+    return "SME" if ("sme" in joined or "emerge" in joined) else "Mainboard"
+
 def extract_list(payload):
     if isinstance(payload,list):return [x for x in payload if isinstance(x,dict)]
     if isinstance(payload,dict):
@@ -37,7 +41,10 @@ def normalize(d:dict,status="Upcoming"):
                 return _num(d.get(k))
         return None
     return {
-      "company":company,"symbol":symbol,"country":"India","exchange":"NSE/BSE","board":str(d.get("issueType") or d.get("series") or d.get("board") or "Mainboard"),
+      "company":company,"symbol":symbol,"isin":str(d.get("isin") or ""),"country":"India","exchange":"NSE/BSE",
+      # NSE's live feed says "EQ" for a mainboard equity issue and "SME" for
+      # an Emerge issue - "EQ" is a series code, not a board name.
+      "board":_board(d.get("issueType"),d.get("series"),d.get("board"),d.get("category")),
       "status":status,"sector":str(d.get("industry") or d.get("sector") or "Unknown"),"currency":"INR",
       "price_low":_num(d.get("issuePriceMin") or d.get("priceBandMin") or d.get("minPrice") or d.get("floorPrice")),
       "price_high":_num(d.get("issuePriceMax") or d.get("priceBandMax") or d.get("maxPrice") or d.get("capPrice") or d.get("issuePrice")),
@@ -76,14 +83,34 @@ def fetch_archive_links():
     with httpx.Client(headers={"User-Agent":"Mozilla/5.0 IPOIntelligence/2.0"},timeout=20,follow_redirects=True) as c:
         r=c.get(ARCHIVE_PAGE);r.raise_for_status();return archive_links(r.text)
 
+def _clean_header(v)->str:
+    return " ".join(str(v).replace("_"," ").split()).lower() if v is not None else ""
+
+def _text(v):
+    if v in (None,"","NA","None","-"):return ""
+    return " ".join(str(v).split())
+
+def _pct(part,total):
+    if part is None or not total:return None
+    return max(0.0,min(100.0,part/total*100))
+
 def parse_monthly_xlsx(content:bytes):
+    """Rows of NSE's Primary Market Monthly Report, one per issue. The sheet
+    mixes IPOs with preferential allotments, QIPs, rights issues and warrant
+    conversions, so every row carries the sheet's own 'issue_type' text and
+    the caller decides (identity.classify_issue_type) what counts as an IPO.
+
+    Everything returned here was known before listing (issue size, fresh vs
+    OFS split, open/close dates, sector, ISIN, price) - genuine pre-IPO
+    features for the historical model - except listing_price, which the sheet
+    does not carry in the formats seen so far (returns come from market data)."""
     wb=load_workbook(BytesIO(content),data_only=True,read_only=True); rows=[]
     for ws in wb.worksheets:
         raw=list(ws.iter_rows(values_only=True))
         if not raw:continue
         header_idx=None; headers=[]
         for i,row in enumerate(raw[:25]):
-            vals=[str(x).strip().lower() if x is not None else "" for x in row]
+            vals=[_clean_header(x) for x in row]
             joined=" | ".join(vals)
             if any(k in joined for k in ("company","issuer","issue name")) and any(k in joined for k in ("price","listing","issue")):
                 header_idx=i;headers=vals;break
@@ -93,11 +120,30 @@ def parse_monthly_xlsx(content:bytes):
             d={headers[i]:row[i] for i in range(min(len(headers),len(row))) if headers[i]}
             company=next((str(v) for k,v in d.items() if v and any(t in k for t in ("company","issuer","issue name"))),"")
             if not company:continue
-            def pick(*terms,_row=d):
+            def pick(*terms,_row=d,exclude=()):
                 for k,v in _row.items():
-                    if all(t in k for t in terms):return v
+                    if all(t in k for t in terms) and not any(x in k for x in exclude):return v
                 return None
-            symbol=next((str(v) for k,v in d.items() if v and "symbol" in k),"")
-            listing_date=next((str(v) for k,v in d.items() if v and "listing" in k and "date" in k),"")
-            rows.append({"company":company,"symbol":symbol,"listing_date":listing_date,"issue_price":_num(pick("issue","price")),"listing_price":_num(pick("listing","price")),"issue_size":_num(pick("issue","size")),"sheet":ws.title,"raw":{str(k):str(v) for k,v in d.items()}})
+            symbol=_text(next((v for k,v in d.items() if v and "symbol" in k),""))
+            listing_date=_text(next((v for k,v in d.items() if v and "listing" in k and "date" in k),""))
+            size_crores=_num(pick("issue size","crore"))
+            total_shares=_num(pick("total issue size"))
+            fresh_shares=_num(pick("fresh issue"))
+            ofs_shares=_num(pick("offer for sale"))
+            rows.append({
+                "company":company,"symbol":symbol,"listing_date":listing_date,
+                "issue_price":_num(pick("issue price")),
+                "listing_price":_num(pick("listing","price")),
+                # crores of INR -> millions of INR (1 crore = 10 million)
+                "issue_size_m":size_crores*10 if size_crores is not None else None,
+                "fresh_issue_pct":_pct(fresh_shares,total_shares),
+                "ofs_pct":_pct(ofs_shares,total_shares),
+                "open_date":_text(pick("issue open")),"close_date":_text(pick("issue close")),
+                "isin":_text(pick("isin",exclude=("descriptor",))).upper(),
+                "issue_type":_text(pick("issue type")),
+                "sector":_text(pick("industry")) or None,
+                "exchange":_text(pick("exchange")) or "NSE/BSE",
+                "registrar":_text(pick("registrar")) or None,
+                "sheet":ws.title,"raw":{str(k):str(v) for k,v in d.items()},
+            })
     return rows

@@ -1,8 +1,8 @@
 from __future__ import annotations
-"""Deterministic red-flag engine. No LLM in the loop — every flag is a rule over
+"""Deterministic red-flag engine. No LLM in the loop; every flag is a rule over
 structured fields already captured with provenance. If a category from the product
 spec cannot be derived from the current data model (e.g. auditor opinions, customer
-concentration — no such structured field exists yet), it is simply not emitted rather
+concentration: no such structured field exists yet), it is simply not emitted rather
 than guessed."""
 from ..models import IPO
 
@@ -25,12 +25,12 @@ def evaluate(ipo: IPO) -> list[dict]:
     # --- Financial ---
     if ipo.cfo_m is not None and ipo.cfo_m < 0:
         flag("neg_cfo", HIGH, "Negative operating cash flow",
-             f"Latest reported operating cash flow is {ipo.cfo_m:.1f}m — the business is not self-funding from operations.",
+             f"Latest reported operating cash flow is {ipo.cfo_m:.1f}m, so the business is not self-funding from operations.",
              "cfo_m", ipo.cfo_m, "cfo_m < 0")
     if ipo.net_income_m is not None and ipo.cfo_m is not None:
         if ipo.net_income_m > 0 and ipo.cfo_m < ipo.net_income_m * 0.5:
             flag("pat_cfo_gap", WATCH, "Cash conversion materially below reported profit",
-                 f"Net income {ipo.net_income_m:.1f}m vs operating cash flow {ipo.cfo_m:.1f}m — accruals are not converting to cash at a normal rate.",
+                 f"Net income {ipo.net_income_m:.1f}m vs operating cash flow {ipo.cfo_m:.1f}m: accruals are not converting to cash at a normal rate.",
                  "cfo_m", ipo.cfo_m, "cfo_m < 0.5 * net_income_m (net_income_m > 0)")
     if ipo.net_income_m is not None and ipo.net_income_m < 0:
         flag("losses", WATCH, "Company is loss-making at IPO",
@@ -56,7 +56,7 @@ def evaluate(ipo: IPO) -> list[dict]:
     # --- IPO structure ---
     if ipo.ofs_pct is not None and ipo.ofs_pct >= 70:
         flag("high_ofs", HIGH, "Offer dominated by selling shareholders",
-             f"{ipo.ofs_pct:.0f}% of the issue is an offer-for-sale — existing holders are monetizing, minimal new capital reaches the company.",
+             f"{ipo.ofs_pct:.0f}% of the issue is an offer-for-sale: existing holders are monetizing, minimal new capital reaches the company.",
              "ofs_pct", ipo.ofs_pct, "ofs_pct >= 70")
     elif ipo.ofs_pct is not None and ipo.ofs_pct >= 45:
         flag("moderate_ofs", WATCH, "Meaningful secondary component",
@@ -88,7 +88,7 @@ def evaluate(ipo: IPO) -> list[dict]:
     # --- Demand ---
     if ipo.total_sub is not None and ipo.total_sub < 1:
         flag("undersubscribed", HIGH, "Issue undersubscribed",
-             f"Total subscription is {ipo.total_sub:.2f}x — demand did not cover the offered shares at close.",
+             f"Total subscription is {ipo.total_sub:.2f}x: demand did not cover the offered shares at close.",
              "total_sub", ipo.total_sub, "total_sub < 1")
     if ipo.qib_sub is not None and ipo.qib_sub < 1 and ipo.country.lower() == "india":
         flag("weak_qib", WATCH, "Weak institutional (QIB) demand",
@@ -97,7 +97,7 @@ def evaluate(ipo: IPO) -> list[dict]:
     # --- Valuation-adjacent structural flags ---
     if ipo.price_low is not None and ipo.price_high is not None and ipo.price_low > ipo.price_high:
         flag("inverted_band", CRITICAL, "Price band data inverted",
-             f"Recorded low ({ipo.price_low}) exceeds recorded high ({ipo.price_high}) — likely a data-capture error, needs correction.",
+             f"Recorded low ({ipo.price_low}) exceeds recorded high ({ipo.price_high}): likely a data-capture error, needs correction.",
              "price_low", ipo.price_low, "price_low > price_high")
 
     severity_rank = {CRITICAL: 0, HIGH: 1, WATCH: 2, INFO: 3}

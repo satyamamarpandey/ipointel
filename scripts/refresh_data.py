@@ -23,7 +23,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.db import SessionLocal, init_db  # noqa: E402
-from app.services.pipeline import refresh_all, ingest_nse_history  # noqa: E402
+from app.services.pipeline import refresh_all, ingest_nse_history, refresh_market_performance, reconcile_lifecycle  # noqa: E402
+from app.services.outcomes import sync_prediction_outcomes  # noqa: E402
 
 
 def main() -> int:
@@ -33,6 +34,20 @@ def main() -> int:
         runs = refresh_all(db)
         if os.environ.get("FULL_REFRESH", "").lower() in ("1", "true", "yes"):
             runs.append(ingest_nse_history(db, max_reports=3))
+            stats = reconcile_lifecycle(db)
+            print(f"lifecycle reconcile: {stats}")
+            # Post-listing market data for the historical explorer and the
+            # forward track record. Bounded per pass (secondary source, be
+            # polite); each daily pass extends coverage a little further.
+            try:
+                n = refresh_market_performance(db, limit=int(os.environ.get("MARKET_REFRESH_LIMIT", "150")))
+                print(f"market performance snapshots written: {n}")
+            except Exception as e:  # never fatal - last-known-good snapshots stay
+                print(f"market performance refresh failed: {type(e).__name__}: {e}")
+            try:
+                print(f"prediction outcomes: {sync_prediction_outcomes(db, limit=80)}")
+            except Exception as e:
+                print(f"prediction outcome sync failed: {type(e).__name__}: {e}")
         db.commit()
     finally:
         db.close()

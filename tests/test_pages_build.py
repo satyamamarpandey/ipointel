@@ -117,8 +117,53 @@ def test_upcoming_ipos_are_not_filtered_by_the_five_year_cutoff(build_dist):
 def test_every_discovered_upcoming_ipo_is_published_or_explicitly_excluded(build_dist):
     manifest = _load(build_dist, "data/manifest.json")
     up = manifest["counts"]["upcoming"]
-    assert up["india_discovered"] == up["india_published"]
-    assert up["us_discovered"] == up["us_published"]
+    assert up["india_discovered"] == up["india_published"] + up["india_excluded"]
+    assert up["us_discovered"] == up["us_published"] + up["us_excluded"]
+    assert len(up["excluded"]) == up["india_excluded"] + up["us_excluded"]
+    for e in up["excluded"]:  # no silent drops: every exclusion names the row and says why
+        assert e["id"] and e["company"] and e["reason"]
+
+
+def test_published_upcoming_never_contains_listed_withdrawn_or_non_ipo_rows(build_dist):
+    from scripts.build_pages import UPCOMING_STATUSES
+    for rel in ("data/upcoming/india.json", "data/upcoming/us.json"):
+        for row in _load(build_dist, rel):
+            assert row["status"] in UPCOMING_STATUSES, f"{row['company']} is {row['status']} but published as upcoming"
+    for row in _load(build_dist, "data/withdrawn.json"):
+        assert row["status"] == "Withdrawn"
+
+
+def test_published_history_contains_only_ipos_within_window(build_dist):
+    for rel in ("data/history/india-5y.json", "data/history/us-5y.json"):
+        for row in _load(build_dist, rel):
+            assert row["status"] == "Listed"
+            assert row["board"] in ("Mainboard", "SME"), f"{row['company']} has board {row['board']!r}"
+
+
+def test_manifest_pipeline_status_is_data_driven(build_dist):
+    from scripts.build_pages import pipeline_status
+    manifest = _load(build_dist, "data/manifest.json")
+    health = _load(build_dist, "data/source-health.json")
+    assert manifest["pipeline_status"] in ("LIVE", "DELAYED", "PARTIAL", "STALE", "FAILED")
+    assert manifest["pipeline_status"] == pipeline_status(health)
+    assert manifest["summary"]["pipeline_status"] == manifest["pipeline_status"]
+    for row in health:
+        assert row["public_status"] in ("LIVE", "DELAYED", "PARTIAL", "STALE", "FAILED", "OPTIONAL_UNCONFIGURED")
+
+
+def test_no_user_visible_em_dash_anywhere_in_dist(build_dist):
+    from scripts.build_pages import em_dash_scan
+    assert em_dash_scan(build_dist) == []
+
+
+def test_no_duplicate_issuer_published_twice_in_the_same_bucket(build_dist):
+    from app.services.identity import canonical_name
+    for rel in ("data/upcoming/india.json", "data/upcoming/us.json", "data/history/india-5y.json", "data/history/us-5y.json"):
+        seen = set()
+        for row in _load(build_dist, rel):
+            key = canonical_name(row["company"])
+            assert key not in seen, f"{row['company']} published twice in {rel}"
+            seen.add(key)
 
 
 def test_history_manifest_counts_match_published_file_lengths(build_dist):

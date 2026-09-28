@@ -30,7 +30,7 @@
         </svg>
         <b>IPO<span>Intel</span></b>
       </a>
-      <span class="pill"><span class="dot"></span><span id="liveText">Live data monitor</span></span>
+      <span class="pill" id="livePill"><span class="dot" id="liveDot"></span><span id="liveText">Loading data monitor</span></span>
       <nav class="appnavlinks" aria-label="Site">
         <a href="/">Home</a>
         <a href="/#truth-engine">Methodology</a>
@@ -38,7 +38,7 @@
         <button id="refreshBtn" class="btn sm" type="button">Refresh</button>
       </nav>
     </div>
-    <div class="tabs" role="tablist" aria-label="Terminal sections">
+    <div class="tabs" role="tablist" aria-label="Terminal sections" aria-orientation="horizontal">
       <button class="tab active" data-view="radar" role="tab" aria-selected="true">IPO radar</button>
       <button class="tab" data-view="calendar" role="tab" aria-selected="false">Calendar</button>
       <button class="tab" data-view="compare" role="tab" aria-selected="false">Compare</button>
@@ -64,21 +64,38 @@
     </div>
 
     <div class="toolbar">
-      <input id="search" placeholder="Search company or ticker" aria-label="Search company or ticker">
+      <input id="search" type="search" placeholder="Search issuer, ticker, exchange, sector or country" aria-label="Search issuer, ticker, exchange, sector or country" autocomplete="off">
       <select id="country" aria-label="Market">
         <option value="all">India and U.S.</option>
         <option value="India">India</option>
         <option value="United States">United States</option>
       </select>
       <select id="status" aria-label="Stage">
-        <option value="all">All stages</option>
+        <option value="all">All active stages</option>
+        <option value="Open">Open now</option>
         <option value="Upcoming">Upcoming</option>
-        <option value="Open">Open</option>
+        <option value="Closed">Closed, awaiting listing</option>
         <option value="Filed">Filed</option>
-        <option value="Listed">Listed</option>
+        <option value="Listed">Listed (past 5 years)</option>
+        <option value="Withdrawn">Withdrawn</option>
+      </select>
+      <select id="board" aria-label="Board">
+        <option value="all">Mainboard and SME</option>
+        <option value="Mainboard">Mainboard</option>
+        <option value="SME">SME</option>
+      </select>
+      <select id="sector" aria-label="Sector">
+        <option value="all">All sectors</option>
+      </select>
+      <select id="confidence" aria-label="Minimum confidence">
+        <option value="0">Any confidence</option>
+        <option value="70">Confidence 70%+</option>
+        <option value="50">Confidence 50%+</option>
       </select>
       <select id="sort" aria-label="Sort by">
+        <option value="date">Open first, then by date</option>
         <option value="updated">Most recently updated</option>
+        <option value="change">Latest score change</option>
         <option value="overall">Highest overall score</option>
         <option value="listing">Best listing setup</option>
         <option value="long">Best long-term setup</option>
@@ -107,7 +124,7 @@
                 <th scope="col">Verdict</th>
               </tr>
             </thead>
-            <tbody id="ipoRows"></tbody>
+            <tbody id="ipoRows"><tr><td colspan="9"><div class="empty" role="status">Loading IPOs</div></td></tr></tbody>
           </table>
         </div>
       </div>
@@ -159,7 +176,7 @@
       <div class="panel">
         <div class="panelhead">
           <h3>Listed IPO performance</h3>
-          <span class="pill">Actual against issue price</span>
+          <span class="pill" id="perfCount">Against issue price</span>
         </div>
         <div class="tablewrap">
           <table class="table">
@@ -167,9 +184,9 @@
               <tr>
                 <th scope="col">Company</th>
                 <th scope="col">Market</th>
-                <th scope="col">IPO price</th>
-                <th scope="col">Latest</th>
-                <th scope="col">Return</th>
+                <th scope="col">Issue price</th>
+                <th scope="col">Latest close</th>
+                <th scope="col">Listing return</th>
                 <th scope="col">Original score</th>
                 <th scope="col">Confidence</th>
               </tr>
@@ -210,7 +227,7 @@
   <section id="trackrecord" class="view" aria-label="Model track record">
     <div class="grid2">
       <div class="panel">
-        <div class="panelhead"><h3>Walk-forward calibration status</h3></div>
+        <div class="panelhead"><h3>Historical backtest</h3><span class="pill">Retrospective</span></div>
         <div class="detail" id="backtest"></div>
       </div>
       <div class="panel">
@@ -219,13 +236,14 @@
           <p><b>Brier score</b> measures probability calibration, where lower is better. It is only reported when realized listing outcomes exist.</p>
           <p><b>Top-decile return</b> is the observed average listing return of the highest-scoring historical group in the local dataset.</p>
           <p>Small samples are labelled insufficient rather than presented as stable accuracy claims.</p>
+          <p>The historical backtest and the live forward record are reported separately and are never combined into one accuracy figure.</p>
         </div>
       </div>
     </div>
     <div class="panel" style="margin-top:20px">
       <div class="panelhead">
         <h3>Live forward track record</h3>
-        <span class="pill">Immutable, never rewritten</span>
+        <span class="pill">Immutable, never rewritten, never blended with the backtest</span>
       </div>
       <div class="detail" id="forwardrecord"></div>
     </div>
@@ -249,6 +267,7 @@
   <div class="container">
     <div class="footbrand">
       <p class="tiny" style="margin:0">IPOIntel terminal. Research and decision support only. Not investment advice. No guaranteed outcomes.</p>
+      <p class="buildstamp" id="buildStamp" style="margin:6px 0 0"></p>
     </div>
     <div class="footcol">
       <h4>Product</h4>

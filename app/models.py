@@ -116,6 +116,7 @@ class IPO(Base):
     external_key: Mapped[str] = mapped_column(String(220), unique=True, index=True)
     company: Mapped[str] = mapped_column(String(220), index=True)
     symbol: Mapped[str] = mapped_column(String(32), default="", index=True)
+    isin: Mapped[str] = mapped_column(String(20), default="", index=True)
     country: Mapped[str] = mapped_column(String(32), index=True)
     exchange: Mapped[str] = mapped_column(String(80), default="")
     board: Mapped[str] = mapped_column(String(40), default="Mainboard")

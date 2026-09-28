@@ -1,11 +1,12 @@
 from __future__ import annotations
 """Point-in-time score-change attribution. Diffs consecutive ScoreSnapshot rows that
 were persisted as-of the time each ingestion actually happened (app.services.pipeline
-only writes a new snapshot when the score moved) — nothing here is recomputed
+only writes a new snapshot when the score moved). Nothing here is recomputed
 retroactively from today's data."""
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from ..models import ScoreSnapshot
+from .identity import sanitize_label
 
 def timeline(db: Session, ipo_id: int) -> list[dict]:
     snaps = db.scalars(select(ScoreSnapshot).where(ScoreSnapshot.ipo_id == ipo_id).order_by(ScoreSnapshot.created_at.asc())).all()
@@ -14,12 +15,12 @@ def timeline(db: Session, ipo_id: int) -> list[dict]:
     for s in snaps:
         entry = {
             "at": s.created_at.isoformat(), "overall": s.overall_score, "listing": s.listing_score,
-            "long_term": s.long_term_score, "confidence": s.confidence, "recommendation": s.recommendation,
+            "long_term": s.long_term_score, "confidence": s.confidence, "recommendation": sanitize_label(s.recommendation),
             "model_version": s.model_version,
         }
         if prev is None:
             entry["delta_overall"] = None
-            entry["drivers"] = ["Initial score at first ingestion — no prior snapshot to compare."]
+            entry["drivers"] = ["Initial score at first ingestion. No prior snapshot to compare."]
         else:
             delta = round(s.overall_score - prev.overall_score, 1)
             entry["delta_overall"] = delta
@@ -32,8 +33,8 @@ def timeline(db: Session, ipo_id: int) -> list[dict]:
                         drivers.append({"pillar": k, "delta": d})
             drivers.sort(key=lambda x: -abs(x["delta"]))
             entry["drivers"] = drivers[:6]
-            if prev.recommendation != s.recommendation:
-                entry["recommendation_change"] = f"{prev.recommendation} -> {s.recommendation}"
+            if sanitize_label(prev.recommendation) != sanitize_label(s.recommendation):
+                entry["recommendation_change"] = f"{sanitize_label(prev.recommendation)} -> {sanitize_label(s.recommendation)}"
         out.append(entry)
         prev = s
     return out

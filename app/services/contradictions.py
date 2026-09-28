@@ -3,12 +3,12 @@ from __future__ import annotations
 1. Cross-source: the same field reported with materially different values by two
    different sources (uses Provenance rows already persisted by pipeline.upsert_ipo).
 2. Cross-field: internally inconsistent structured numbers within a single IPO record.
-Neither kind accuses anyone of wrongdoing — every output is phrased as
-"potential disclosure inconsistency — review required" per product policy.
+Neither kind accuses anyone of wrongdoing; every output is phrased as
+"potential disclosure inconsistency (review required)" per product policy.
 Narrative cross-checking (DRHP prose vs RHP prose, "risk factor" text vs financial
 statements) is NOT implemented: this app does not retain full filing text long-term,
 and inventing that capability would violate the no-fabrication rule. That is a real
-gap, not a hidden one — see README/limitations."""
+gap, not a hidden one; see README/limitations."""
 from ..models import IPO, Provenance
 
 NUMERIC_TOLERANCE = 0.04  # 4% relative difference before two sources are considered to disagree
@@ -40,7 +40,7 @@ def cross_source(provenance: list[Provenance]) -> list[dict]:
                     out.append({
                         "code": "cross_source_disagreement",
                         "field": field,
-                        "summary": f"Potential disclosure inconsistency — review required: '{field}' differs across sources.",
+                        "summary": f"Potential disclosure inconsistency (review required): '{field}' differs across sources.",
                         "evidence_a": {"source": pa.source_name, "value": pa.observed_value, "url": pa.source_url, "observed_at": pa.observed_at.isoformat() if pa.observed_at else None},
                         "evidence_b": {"source": pb.source_name, "value": pb.observed_value, "url": pb.source_url, "observed_at": pb.observed_at.isoformat() if pb.observed_at else None},
                     })
@@ -51,7 +51,7 @@ def cross_field(ipo: IPO) -> list[dict]:
     def add(code, summary, a_label, a_val, b_label, b_val):
         out.append({
             "code": code, "field": None,
-            "summary": f"Potential disclosure inconsistency — review required: {summary}",
+            "summary": f"Potential disclosure inconsistency (review required): {summary}",
             "evidence_a": {"source": a_label, "value": a_val, "url": ipo.filing_url, "observed_at": ipo.updated_at.isoformat() if ipo.updated_at else None},
             "evidence_b": {"source": b_label, "value": b_val, "url": ipo.filing_url, "observed_at": ipo.updated_at.isoformat() if ipo.updated_at else None},
         })

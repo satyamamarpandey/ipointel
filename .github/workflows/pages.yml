@@ -21,8 +21,13 @@ on:
   push:
     branches: [master] # this repo's actual production branch (see git branch -vv) - not "main"
     paths:
-      - "app/static/**"
+      # Anything that changes what the public build produces: the frontend,
+      # the ingestion/scoring backend it freezes, the build/refresh scripts
+      # and the dependency pins.
+      - "app/**"
       - "scripts/build_pages.py"
+      - "scripts/refresh_data.py"
+      - "requirements.txt"
       - ".github/workflows/pages.yml"
 
 permissions:

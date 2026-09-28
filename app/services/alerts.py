@@ -11,13 +11,14 @@ from ..config import get_settings
 from . import redflags as redflags_svc
 from . import email_provider as ep
 from .email_queue import enqueue
+from .identity import sanitize_label
 
 def _material_kind(score: ScoreSnapshot, previous: ScoreSnapshot | None) -> str | None:
     if "NO RECOMMENDATION" in score.recommendation:
         return None
     if previous is None:
         return "score" if (score.confidence >= get_settings().min_recommendation_confidence and score.overall_score >= 60) else None
-    if score.recommendation != previous.recommendation:
+    if sanitize_label(score.recommendation) != sanitize_label(previous.recommendation):
         return "recommendation"
     if score.valuation_label != previous.valuation_label and score.valuation_label != "INSUFFICIENT DATA":
         return "valuation"
@@ -60,7 +61,7 @@ def queue_score_alerts(db: Session, limit_scores: int = 30) -> dict:
     return {"queued": queued}
 
 def queue_red_flag_alerts(db: Session) -> dict:
-    ipos = db.scalars(select(IPO).where(IPO.status.in_(["Open", "Upcoming", "Filed"]))).all()
+    ipos = db.scalars(select(IPO).where(IPO.status.in_(["Open", "Upcoming", "Filed", "Closed"]))).all()
     leads = db.scalars(select(WaitlistLead).where(WaitlistLead.consent == True, WaitlistLead.suppressed == False, WaitlistLead.alert_red_flag == True)).all()
     queued = 0
     for ipo in ipos:

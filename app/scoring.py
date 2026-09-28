@@ -114,9 +114,45 @@ def confidence(ipo: IPO, conflicts: int = 0) -> float:
     ]
     complete=sum(v not in (None,"") for v in fields)/len(fields)
     primary = 1.0 if is_primary_source_url(ipo.filing_url) else 0.72
-    flag_pen=min(0.28, len(ipo.data_flags or [])*0.035)
+    flag_pen=min(0.28, sum(1 for f in (ipo.data_flags or []) if not str(f).startswith("ipo_classification"))*0.035)
     conflict_pen=min(0.25, conflicts*0.08)
     return clamp((0.68*complete+0.32*primary-flag_pen-conflict_pen)*100)
+
+def confidence_reasons(ipo: IPO, conflicts: int = 0) -> list[str]:
+    """Plain-language reasons the confidence figure is what it is - read off
+    the SAME inputs confidence() uses, so the explanation can never disagree
+    with the number. Empty list means nothing is holding confidence back."""
+    reasons: list[str] = []
+    if not ipo.filing_url:
+        reasons.append("No primary filing document on record")
+    elif not is_primary_source_url(ipo.filing_url):
+        reasons.append("Filing document is not from a regulator or exchange host (secondary source)")
+    if ipo.price_high is None:
+        reasons.append("Price band or offer price not yet disclosed")
+    fin_missing = [lbl for lbl, v in (("revenue", ipo.revenue_m), ("prior-year revenue", ipo.revenue_prev_m),
+                                      ("net income", ipo.net_income_m), ("operating cash flow", ipo.cfo_m),
+                                      ("debt", ipo.debt_m), ("cash", ipo.cash_m)) if v is None]
+    if len(fin_missing) >= 4:
+        reasons.append("Financial statements incomplete: missing " + ", ".join(fin_missing))
+    elif fin_missing:
+        reasons.append("Missing financial inputs: " + ", ".join(fin_missing))
+    if ipo.post_issue_shares_m is None:
+        reasons.append("Post-issue share count unknown, so no valuation multiple can be computed")
+    elif not (ipo.peer_median_pe or ipo.peer_median_ps):
+        reasons.append("No peer valuation set, so relative valuation is unavailable")
+    if (ipo.country or "").lower() == "india":
+        if ipo.fresh_issue_pct is None:
+            reasons.append("Fresh issue vs offer-for-sale split not disclosed")
+    elif ipo.lockup_days is None:
+        reasons.append("Lock-up terms not parsed from the filing")
+    if ipo.market_regime is None:
+        reasons.append("No market regime input (stale or missing market data)")
+    if conflicts:
+        reasons.append(f"{conflicts} field(s) conflict across sources")
+    for f in (ipo.data_flags or []):
+        if not str(f).startswith("ipo_classification"):  # bookkeeping marker, not a data problem
+            reasons.append(str(f))
+    return reasons
 
 def probability_from_score(score: float, midpoint=65, scale=10):
     return clamp(100/(1+exp(-(score-midpoint)/scale)), 2, 98)
@@ -171,11 +207,11 @@ def compute_score(ipo: IPO, conflicts: int = 0) -> dict:
     if ipo.country.lower()=="india" and ipo.qib_sub is None: changes.append("QIB subscription data can materially change the listing-gain view")
     if conf<settings.min_recommendation_confidence: changes.append(f"Confidence must reach {settings.min_recommendation_confidence:.0f}% before an actionable recommendation is issued")
     if settings.strict_reliability and conf<settings.min_recommendation_confidence:
-        recommendation="INSUFFICIENT RELIABLE DATA — NO RECOMMENDATION"
+        recommendation="INSUFFICIENT RELIABLE DATA: NO RECOMMENDATION"
         horizon="WAIT FOR VERIFIED DATA"
     else:
-        recommendation="INVEST — STRONG" if overall>=80 and long_term>=74 else "INVEST SELECTIVELY" if overall>=70 else "WATCH / SMALL ALLOCATION" if overall>=60 else "AVOID / WAIT"
-        horizon="LISTING GAINS ONLY" if listing>=74 and long_term<65 else "BOTH — LISTING + LONG TERM" if listing>=70 and long_term>=72 else "LONG TERM — WAIT FOR PRICE DISCOVERY" if long_term>=74 and listing<65 else "LONG TERM BIAS" if long_term>=68 else "LISTING BIAS" if listing>=68 else "NO CLEAR EDGE"
+        recommendation="INVEST: STRONG" if overall>=80 and long_term>=74 else "INVEST SELECTIVELY" if overall>=70 else "WATCH / SMALL ALLOCATION" if overall>=60 else "AVOID / WAIT"
+        horizon="LISTING GAINS ONLY" if listing>=74 and long_term<65 else "BOTH: LISTING + LONG TERM" if listing>=70 and long_term>=72 else "LONG TERM: WAIT FOR PRICE DISCOVERY" if long_term>=74 and listing<65 else "LONG TERM BIAS" if long_term>=68 else "LISTING BIAS" if listing>=68 else "NO CLEAR EDGE"
     return {
       "model_version":MODEL_VERSION,"overall_score":round(overall,1),"listing_score":round(listing,1),"long_term_score":round(long_term,1),"confidence":round(conf,1),
       "listing_gain_probability":round(listing_prob,1),"long_term_outperform_probability":round(long_prob,1),"recommendation":recommendation,"horizon":horizon,

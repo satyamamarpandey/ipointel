@@ -44,6 +44,9 @@ def _migrate_sqlite():
             "clerk_user_id": "VARCHAR(80) DEFAULT ''", "identity_provider": "VARCHAR(20) DEFAULT ''",
             "campaign": "VARCHAR(80) DEFAULT ''", "page_path": "VARCHAR(160) DEFAULT ''",
         },
+        "ipos": {
+            "isin": "VARCHAR(20) DEFAULT ''",
+        },
         "score_snapshots": {
             # is_forward defaults to 0 for this migration deliberately: we have no positive
             # evidence pre-existing rows were genuinely forward predictions (vs backfilled),

@@ -45,7 +45,7 @@ def sync_prediction_outcomes(db: Session, limit: int = 60) -> dict:
             if not listing_dt:
                 result["no_price_data"] += 1
                 continue
-            wr = market.windowed_returns(bars, listing_dt)
+            wr = market.windowed_returns(bars, listing_dt, issue_price=ipo.final_price)
             if not wr:
                 result["no_price_data"] += 1
                 continue

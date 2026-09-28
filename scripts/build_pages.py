@@ -1,6 +1,6 @@
 #!/usr/bin/env python
-"""Static-site generator for the GitHub Pages production build of IPO
-Intelligence (ipointel.brandsap.com).
+"""Static-site generator for the GitHub Pages production build of IPOIntel
+(ipointel.brandsap.com).
 
 This freezes REAL backend output into static JSON by importing app.main and
 calling its existing route functions directly, in-process, against whichever
@@ -18,9 +18,13 @@ Output layout (see docs/GITHUB_PAGES.md):
     dist/login/index.html              present for structural parity; non-functional
                                         without a real server (magic-link auth needs one)
     dist/ipo/<slug>/index.html         one static detail page per published IPO
-    dist/data/manifest.json            build metadata, counts, cutoffs, source status
+    dist/data/manifest.json            build metadata, counts, exclusions (with reasons),
+                                        cutoffs, pipeline/source status
     dist/data/highlights.json          landing hero/ticker (mirrors /api/public/highlights)
-    dist/data/upcoming/{india,us}.json all currently discovered upcoming/active IPOs
+    dist/data/upcoming/{india,us}.json every currently active IPO that passed the
+                                        publish rules (each drop is listed in the manifest)
+    dist/data/withdrawn.json           withdrawn / cancelled offerings, never mixed into
+                                        the active counts
     dist/data/history/{india,us}-5y.json  listed IPOs within the rolling 5-year window
     dist/data/ipo/<id>.json            per-IPO {detail, valuation, similar, changes}
     dist/data/{track-record,source-health,backtest,model-performance}.json
@@ -40,10 +44,25 @@ from app.db import SessionLocal, init_db  # noqa: E402
 from app.models import IPO  # noqa: E402
 from app.services.market import parse_date  # noqa: E402
 from app.services import similarity as similarity_svc  # noqa: E402
+from app.services.identity import canonical_name, sanitize_tree, sanitize_label, ACTIVE_STATUSES  # noqa: E402
+from app.services.pipeline import INDIA_LISTING_GRACE_DAYS  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
 STATIC = ROOT / "app" / "static"
-UPCOMING_STATUSES = ("Filed", "Open", "Upcoming")
+UPCOMING_STATUSES = tuple(ACTIVE_STATUSES)  # Filed, Upcoming, Open, Closed, Priced
+# A US registration with no amendment, no pricing and no withdrawal for this
+# long is not an upcoming IPO in any practical sense. It stays in the database
+# (it may still price one day) but is not published as upcoming.
+US_STALE_FILING_DAYS = 365
+# Sources whose health decides the public pipeline status. The licensed
+# enrichment feed is optional and never counts against it.
+REQUIRED_SOURCES = ("SEC EDGAR", "SEC Priced IPOs", "NSE", "NSE Primary Market Reports")
+PUBLIC_SOURCES = set(REQUIRED_SOURCES) | {"Licensed enrichment feed"}
+STATUS_SEVERITY = {"LIVE": 0, "OPTIONAL_UNCONFIGURED": 0, "DELAYED": 1, "PARTIAL": 2, "STALE": 3, "FAILED": 4}
+# Fields the per-IPO detail artifact already carries; dropping them from the
+# multi-thousand-row history LIST keeps that file small (the History tab only
+# renders numbers), while every detail page still gets the full record.
+HISTORY_LIST_SCORE_FIELDS = ("overall", "listing", "long_term", "confidence", "recommendation", "valuation", "model_version", "created_at")
 
 
 def slugify(external_key: str) -> str:
@@ -61,7 +80,9 @@ def git_sha() -> str:
 
 def write_json(path: Path, obj) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(obj, indent=None, separators=(",", ":"), default=str), encoding="utf-8")
+    # Last line of defence for the zero-em-dash rule: immutable legacy score
+    # snapshots still carry the old wording, and source data can carry anything.
+    path.write_text(json.dumps(sanitize_tree(obj), indent=None, separators=(",", ":"), default=str), encoding="utf-8")
 
 
 def history_cutoff(now: datetime, window_years: int = 5) -> datetime:
@@ -79,22 +100,83 @@ def in_history_window(date_str: str, now: datetime, cutoff: datetime) -> bool | 
     return cutoff <= d <= now
 
 
-def classify(db, now: datetime, window_years: int = 5):
-    """Splits every IPO row into upcoming / published-history / excluded-history,
-    using the SAME date parser the rest of the app trusts for these exact
-    formats (app.services.market.parse_date), never a raw string comparison -
-    the underlying listing_date column mixes "30-Nov-2022" (India) and
-    "20251022" (US) styles, which do not sort or compare correctly as strings.
+def _days_since(date_str: str, now: datetime) -> int | None:
+    d = parse_date(date_str)
+    return None if d is None else (now - d).days
 
-    The cutoff applies ONLY to Listed rows. An upcoming IPO is never excluded
-    for having an old filing_date - see in_history_window's docstring and
-    tests/test_pages_build.py::test_upcoming_never_excluded_by_filing_date."""
+
+def upcoming_exclusion_reason(ipo: IPO, now: datetime) -> str | None:
+    """Why an active-status row is NOT published as an upcoming IPO. None means
+    publish. Every rule here is deterministic and spelled out in the manifest."""
+    flags = [str(f) for f in (ipo.data_flags or [])]
+    if any(f.startswith("non_ipo_registration") for f in flags):
+        return "not an IPO registration: " + "; ".join(f.split(":", 1)[1].strip() for f in flags if f.startswith("non_ipo_registration"))
+    if ipo.country == "United States" and ipo.status == "Filed":
+        age = _days_since(ipo.filing_date, now)
+        if age is not None and age > US_STALE_FILING_DAYS:
+            return f"stale registration: no amendment, pricing or withdrawal in {age} days (limit {US_STALE_FILING_DAYS})"
+    if ipo.country == "India" and ipo.status == "Closed":
+        age = _days_since(ipo.close_date, now)
+        if age is not None and age > INDIA_LISTING_GRACE_DAYS:
+            return f"issue closed {age} days ago with no confirmed listing (limit {INDIA_LISTING_GRACE_DAYS})"
+    return None
+
+
+def _completeness(ipo: IPO) -> tuple:
+    """Sort key for choosing which duplicate record to keep: more data wins,
+    then the row that carries a symbol, then the lowest (oldest) id."""
+    filled = sum(1 for f in ("listing_date", "final_price", "price_high", "isin", "issue_size_m", "fresh_issue_pct", "sector") if getattr(ipo, f) not in (None, "", "Unknown"))
+    return (-filled, 0 if ipo.symbol else 1, ipo.id)
+
+
+def dedupe_by_issuer(rows: list[IPO]) -> tuple[list[IPO], list[dict]]:
+    """Publish-time issuer de-duplication (see GitHub issue #1). Rows are
+    grouped by country + canonical issuer name; within a group one record is
+    kept and the rest are excluded with an explicit reason naming the kept
+    id. Nothing is merged or deleted in the database - a later, evidence-based
+    merge can still happen there; this only keeps the public site honest now."""
+    groups: dict[tuple[str, str], list[IPO]] = {}
+    for ipo in rows:
+        groups.setdefault((ipo.country, canonical_name(ipo.company)), []).append(ipo)
+    kept, dropped = [], []
+    for (_country, cname), members in groups.items():
+        if len(members) == 1 or not cname:
+            kept.extend(members)
+            continue
+        members = sorted(members, key=_completeness)
+        keep = members[0]
+        kept.append(keep)
+        for d in members[1:]:
+            dropped.append({"id": d.id, "company": d.company, "country": d.country, "status": d.status,
+                            "reason": f"duplicate issuer record (kept id {keep.id}, external_key {keep.external_key})"})
+    return kept, dropped
+
+
+def classify(db, now: datetime, window_years: int = 5):
+    """Splits every IPO row into upcoming / withdrawn / published-history /
+    excluded buckets, using the SAME date parser the rest of the app trusts
+    (app.services.market.parse_date), never a raw string comparison - the
+    listing_date column mixes "30-Nov-2022" (India) and "20251022" (US)
+    styles, which do not sort or compare correctly as strings.
+
+    The 5-year cutoff applies ONLY to Listed rows. An upcoming IPO is never
+    excluded for having an old filing_date - see in_history_window's docstring
+    and tests/test_pages_build.py::test_upcoming_never_excluded_by_filing_date.
+
+    Every row that is discovered but not published lands in `excluded` with a
+    reason; nothing is silently dropped."""
     cutoff = history_cutoff(now, window_years)
     rows = db.scalars(select(IPO)).all()
-    upcoming, history_in, history_out, unparseable = [], [], [], []
+    upcoming, withdrawn, history_in, history_out, unparseable, excluded = [], [], [], [], [], []
     for ipo in rows:
         if ipo.status in UPCOMING_STATUSES:
-            upcoming.append(ipo)
+            reason = upcoming_exclusion_reason(ipo, now)
+            if reason:
+                excluded.append({"id": ipo.id, "company": ipo.company, "country": ipo.country, "status": ipo.status, "reason": reason})
+            else:
+                upcoming.append(ipo)
+        elif ipo.status == "Withdrawn":
+            withdrawn.append(ipo)
         elif ipo.status == "Listed":
             verdict = in_history_window(ipo.listing_date, now, cutoff)
             if verdict is None:
@@ -103,9 +185,30 @@ def classify(db, now: datetime, window_years: int = 5):
                 history_in.append(ipo)
             else:
                 history_out.append(ipo)
-        # any other status (none currently exist in this pipeline) is neither
-        # published nor silently dropped without accounting - see manifest.excluded.
-    return cutoff, upcoming, history_in, history_out, unparseable
+        elif ipo.status == "Not IPO":
+            excluded.append({"id": ipo.id, "company": ipo.company, "country": ipo.country, "status": ipo.status,
+                             "reason": "not an IPO: " + (str((ipo.raw or {}).get("issue_type") or "; ".join(str(f) for f in (ipo.data_flags or []) if "non_ipo" in str(f)) or "source classified this issue as a non-IPO offering"))})
+        else:
+            excluded.append({"id": ipo.id, "company": ipo.company, "country": ipo.country, "status": ipo.status, "reason": f"unrecognised status {ipo.status!r}"})
+
+    # A Listed record for the same issuer supersedes any still-active record
+    # (the live feed row that never transitioned) - an already-listed IPO is
+    # never shown as upcoming.
+    listed_names = {(x.country, canonical_name(x.company)): x for x in history_in + history_out}
+    still_upcoming = []
+    for ipo in upcoming:
+        match = listed_names.get((ipo.country, canonical_name(ipo.company)))
+        if match is not None and match.id != ipo.id:
+            excluded.append({"id": ipo.id, "company": ipo.company, "country": ipo.country, "status": ipo.status,
+                             "reason": f"already listed: superseded by listed record id {match.id} ({match.listing_date or 'listing date pending'})"})
+        else:
+            still_upcoming.append(ipo)
+    upcoming, dup_up = dedupe_by_issuer(still_upcoming)
+    history_in, dup_hist = dedupe_by_issuer(history_in)
+    duplicates = dup_up + dup_hist
+    excluded.extend(duplicates)
+    return {"cutoff": cutoff, "upcoming": upcoming, "withdrawn": withdrawn, "history_in": history_in,
+            "history_out": history_out, "unparseable": unparseable, "excluded": excluded, "duplicates": duplicates}
 
 
 def source_status(row: dict, now: datetime, *, optional_unconfigured: bool = False) -> str:
@@ -129,11 +232,35 @@ def source_status(row: dict, now: datetime, *, optional_unconfigured: bool = Fal
     if last_run.tzinfo is None:  # SQLite doesn't truly persist tz-awareness even with DateTime(timezone=True)
         last_run = last_run.replace(tzinfo=timezone.utc)
     age_hours = (now - last_run).total_seconds() / 3600
-    if age_hours <= 2:
+    # The daily NSE report pass legitimately runs once a day; the rest every few hours.
+    fresh_hours = 30 if row.get("source") == "NSE Primary Market Reports" else 4
+    if age_hours <= fresh_hours:
         return "LIVE"
-    if age_hours <= 24:
+    if age_hours <= 48:
         return "DELAYED"
     return "STALE"
+
+
+def pipeline_status(source_health: list[dict]) -> str:
+    """Overall public status, derived only from the REQUIRED sources: the worst
+    individual status wins, so one failed required feed shows as FAILED even
+    while three others are LIVE. Never hardcoded."""
+    worst = "LIVE"
+    for r in source_health:
+        if r["source"] not in REQUIRED_SOURCES:
+            continue
+        st = r.get("public_status", "FAILED")
+        if STATUS_SEVERITY.get(st, 4) > STATUS_SEVERITY.get(worst, 0):
+            worst = st
+    return worst
+
+
+def _slim_history_row(row: dict) -> dict:
+    out = dict(row)
+    sc = row.get("score")
+    if sc:
+        out["score"] = {k: sc.get(k) for k in HISTORY_LIST_SCORE_FIELDS}
+    return out
 
 
 def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
@@ -151,7 +278,15 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
     out_dir.mkdir(parents=True)
 
     # ---------- classify + fetch real per-IPO detail (real scoring/DCF/etc.) ----------
-    cutoff, upcoming, history_in, history_out, unparseable = classify(db, now)
+    c = classify(db, now)
+    cutoff, upcoming, withdrawn, history_in = c["cutoff"], c["upcoming"], c["withdrawn"], c["history_in"]
+
+    # Last-known-good protection: a database with no publishable IPO at all
+    # means the restore step failed or every source has been wiped. Deploying
+    # that would replace a working public site with an empty one. Fail loudly.
+    if not upcoming and not history_in:
+        raise SystemExit("REFUSING TO BUILD: no publishable upcoming or historical IPO in the database - "
+                         "check the data-state restore step; not deploying an empty site.")
 
     # Listed candidates per country, fetched once (not once per target IPO) -
     # see similarity.find_similar's `candidates` param docstring. Identical
@@ -169,7 +304,7 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
             "changes": M.ipo_changes(ipo_id=ipo.id, db=db, _lead=None),
         }
 
-    published = upcoming + history_in
+    published = upcoming + withdrawn + history_in
 
     # external_key isn't punctuation-normalized at ingestion (e.g. India rows
     # for the same company differ by a trailing period/comma/asterisk), so
@@ -184,10 +319,13 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
         base_slug_ids.setdefault(slugify(ipo.external_key), []).append(ipo.id)
 
     id_to_slug: dict[int, str] = {}
+    slug_collisions = 0
     for base, ids in base_slug_ids.items():
         ids.sort()
         for pos, ipo_id in enumerate(ids):
             id_to_slug[ipo_id] = base if pos == 0 else f"{base}-{ipo_id}"
+            if pos:
+                slug_collisions += 1
 
     for i, ipo in enumerate(published):
         write_json(out_dir / "data" / "ipo" / f"{ipo.id}.json", full_detail(ipo))
@@ -197,15 +335,29 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
     def bucket(rows, country):
         return [M.ipo_json(db, x) for x in rows if x.country == country]
 
+    def event_date(row):
+        for k in ("open_date", "close_date", "listing_date", "filing_date"):
+            d = parse_date(row.get(k))
+            if d:
+                return d
+        return now
+
     upcoming_india, upcoming_us = bucket(upcoming, "India"), bucket(upcoming, "United States")
+    # Currently open issues first, then by next event date, so an imminent
+    # issue is never buried under old filings.
+    status_order = {"Open": 0, "Closed": 1, "Upcoming": 2, "Priced": 3, "Filed": 4}
+    for lst in (upcoming_india, upcoming_us):
+        lst.sort(key=lambda x: (status_order.get(x["status"], 9), -event_date(x).timestamp()))
     history_india, history_us = bucket(history_in, "India"), bucket(history_in, "United States")
     history_india.sort(key=lambda x: parse_date(x["listing_date"]) or now, reverse=True)
     history_us.sort(key=lambda x: parse_date(x["listing_date"]) or now, reverse=True)
+    withdrawn_rows = [M.ipo_json(db, x) for x in withdrawn]
 
     write_json(out_dir / "data" / "upcoming" / "india.json", upcoming_india)
     write_json(out_dir / "data" / "upcoming" / "us.json", upcoming_us)
-    write_json(out_dir / "data" / "history" / "india-5y.json", history_india)
-    write_json(out_dir / "data" / "history" / "us-5y.json", history_us)
+    write_json(out_dir / "data" / "withdrawn.json", withdrawn_rows)
+    write_json(out_dir / "data" / "history" / "india-5y.json", [_slim_history_row(r) for r in history_india])
+    write_json(out_dir / "data" / "history" / "us-5y.json", [_slim_history_row(r) for r in history_us])
 
     write_json(out_dir / "data" / "highlights.json", M.public_highlights(db=db))
     write_json(out_dir / "data" / "track-record.json", M.track_record(limit=500, db=db, _lead=None))
@@ -213,15 +365,19 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
     write_json(out_dir / "data" / "model-performance.json", M.model_performance(db=db, _lead=None))
 
     raw_source_rows = M._source_health_rows(db)
-    public_sources = {"SEC EDGAR", "SEC Priced IPOs", "NSE", "NSE Primary Market Reports", "Licensed enrichment feed"}
     enrichment_configured = bool(get_settings().secondary_enrichment_url)
     source_health = []
     for r in raw_source_rows:
-        if r["source"] not in public_sources:
+        if r["source"] not in PUBLIC_SOURCES:
             continue  # never publish backend-operational rows (email/worker) on the public site
         optional = r["source"] == "Licensed enrichment feed" and not enrichment_configured
-        source_health.append({**r, "public_status": source_status(r, now, optional_unconfigured=optional)})
+        # Only exception class names are published, never raw exception text
+        # (which can carry hostnames, paths or upstream response fragments).
+        error = re.sub(r"[A-Za-z]:\\[^\s|]+|/home/[^\s|]+", "<path>", str(r.get("error") or ""))[:400]
+        source_health.append({**r, "error": error, "required": r["source"] in REQUIRED_SOURCES,
+                              "public_status": source_status(r, now, optional_unconfigured=optional)})
     write_json(out_dir / "data" / "source-health.json", source_health)
+    overall_status = pipeline_status(source_health)
 
     summary = M.summary(db=db, _lead=None)
     # M.summary() reports true lifetime DB totals (e.g. every IPO ever
@@ -234,30 +390,55 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
     summary["total"] = len(published)
     summary["active"] = len(upcoming)
     summary["listed"] = len(history_in)
+    summary["withdrawn"] = len(withdrawn)
+    summary["pipeline_status"] = overall_status
+    # Same principle for the high-confidence card: count only published rows
+    # whose CURRENT score clears the gate, not every historical snapshot row.
+    summary["high_confidence_scores"] = sum(1 for r in upcoming_india + upcoming_us + history_india + history_us
+                                            if r.get("score") and r["score"]["confidence"] >= summary["min_confidence"])
 
+    def by_country(rows, country):
+        return len([x for x in rows if (x["country"] if isinstance(x, dict) else x.country) == country])
+
+    excluded = c["excluded"]
+    discovered_active = upcoming + [x for x in db.scalars(select(IPO).where(IPO.status.in_(UPCOMING_STATUSES))).all() if x.id in {e["id"] for e in excluded}]
     audit["upcoming"] = {
-        "india_discovered": len(upcoming_india), "us_discovered": len(upcoming_us),
+        "india_discovered": by_country(discovered_active, "India"), "us_discovered": by_country(discovered_active, "United States"),
         "india_published": len(upcoming_india), "us_published": len(upcoming_us),
-        "excluded": [],  # every discovered upcoming row is published as-is - no filtering applied here
+        "india_excluded": len([e for e in excluded if e["country"] == "India" and e["status"] in UPCOMING_STATUSES]),
+        "us_excluded": len([e for e in excluded if e["country"] == "United States" and e["status"] in UPCOMING_STATUSES]),
+        "excluded": [e for e in excluded if e["status"] in UPCOMING_STATUSES],
     }
+    audit["withdrawn"] = {"india": by_country(withdrawn, "India"), "us": by_country(withdrawn, "United States")}
+    audit["not_ipo"] = {"india": len([e for e in excluded if e["country"] == "India" and e["status"] == "Not IPO"]),
+                        "us": len([e for e in excluded if e["country"] == "United States" and e["status"] == "Not IPO"])}
+    audit["duplicates"] = {"issuer_records_excluded": len(c["duplicates"]), "slug_collisions_resolved": slug_collisions,
+                           "records": c["duplicates"]}
     audit["history"] = {
         "india_published": len(history_india), "us_published": len(history_us),
-        "india_excluded_out_of_window": len([x for x in history_out if x.country == "India"]),
-        "us_excluded_out_of_window": len([x for x in history_out if x.country == "United States"]),
-        "india_excluded_unparseable_date": len([x for x in unparseable if x.country == "India"]),
-        "us_excluded_unparseable_date": len([x for x in unparseable if x.country == "United States"]),
+        "india_excluded_out_of_window": by_country(c["history_out"], "India"),
+        "us_excluded_out_of_window": by_country(c["history_out"], "United States"),
+        "india_excluded_unparseable_date": by_country(c["unparseable"], "India"),
+        "us_excluded_unparseable_date": by_country(c["unparseable"], "United States"),
+        "india_excluded_duplicate": len([d for d in c["duplicates"] if d["country"] == "India" and d["status"] == "Listed"]),
+        "us_excluded_duplicate": len([d for d in c["duplicates"] if d["country"] == "United States" and d["status"] == "Listed"]),
     }
+    audit["high_confidence_published"] = sum(1 for r in upcoming_india + upcoming_us + history_india + history_us
+                                             if r.get("score") and r["score"]["confidence"] >= summary["min_confidence"])
 
     # ---------- manifest ----------
+    model_version = next((r["score"]["model_version"] for r in upcoming_india + upcoming_us + history_india + history_us if r.get("score")), "unknown")
     manifest = {
         "generated_at": now.isoformat(),
         "history_window_start": cutoff.date().isoformat(),
         "history_window_end": now.date().isoformat(),
-        "model_version": (history_india[0]["score"]["model_version"] if history_india and history_india[0].get("score") else
-                           (upcoming_india[0]["score"]["model_version"] if upcoming_india and upcoming_india[0].get("score") else "unknown")),
-        "schema_version": "1",
+        "history_window_years": 5,
+        "model_version": model_version,
+        "schema_version": "2",
         "build_commit": git_sha(),
         "base_url": base_url,
+        "pipeline_status": overall_status,
+        "required_sources": list(REQUIRED_SOURCES),
         "summary": summary,
         "counts": audit,
         "published_ipo_pages": len(published),
@@ -267,7 +448,7 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
     # ---------- static assets ----------
     static_out = out_dir / "static"
     shutil.copytree(STATIC / "brand", static_out / "brand")
-    for fn in ["styles.css", "nav.js", "landing.js", "app.js", "login.js", "pages-adapter.js", "pages-ipo-detail.js", "site.webmanifest"]:
+    for fn in ["styles.css", "nav.js", "landing.js", "app.js", "login.js", "pages-adapter.js", "pages-ipo-detail.js", "site.webmanifest", "favicon.ico"]:
         src = STATIC / fn
         if src.exists():
             shutil.copy2(src, static_out / fn)
@@ -302,12 +483,16 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
         base_url + "/privacy",
         base_url + "/terms",
     ]
+
+    def html_attr(s: str) -> str:
+        return sanitize_label(s).replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+
     for ipo in published:
         slug = id_to_slug[ipo.id]
         canonical = f"{base_url}/ipo/{slug}/"
         page = (template
-                .replace("__TITLE__", f"{ipo.company} · IPOIntel")
-                .replace("__DESCRIPTION__", f"Evidence-first score, valuation and risk analysis for {ipo.company} ({ipo.country}).")
+                .replace("__TITLE__", html_attr(f"{ipo.company} · IPOIntel"))
+                .replace("__DESCRIPTION__", html_attr(f"Evidence-first score, valuation and risk analysis for {ipo.company} ({ipo.country}, {ipo.status})."))
                 .replace("__CANONICAL__", canonical)
                 .replace("__ID__", str(ipo.id))
                 .replace("__SNAPSHOT__", snapshot_label))
@@ -334,17 +519,22 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
 
 
 SECRET_PATTERNS = [
-    r"CLERK_SECRET", r"GOOGLE_APPLICATION_CREDENTIALS", r"AWS_SECRET", r"RESEND_API_KEY",
-    r"DATABASE_URL\s*=\s*postgresql", r"ADMIN_TOKEN\s*=\s*(?!change-me)", r"POSTGRES_PASSWORD",
-    r"-----BEGIN (RSA |EC )?PRIVATE KEY-----",
+    r"CLERK_SECRET", r"sk_live_[A-Za-z0-9]{8,}", r"sk_test_[A-Za-z0-9]{8,}", r"GOOGLE_APPLICATION_CREDENTIALS", r"AWS_SECRET", r"RESEND_API_KEY", r"re_[A-Za-z0-9]{20,}",
+    r"DATABASE_URL\s*=\s*postgresql", r"postgres(?:ql)?(?:\+psycopg)?://[^\s\"']+", r"sqlite:///", r"ADMIN_TOKEN\s*=\s*(?!change-me)", r"POSTGRES_PASSWORD",
+    r"SMTP_PASSWORD", r"-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----", r"\"private_key\"",
+    r"Traceback \(most recent call last\)", r"[A-Za-z]:\\\\?Users\\\\?", r"E:\\\\?IPO Analysis", r"/home/[a-z0-9_-]+/",
 ]
+# Real people's email addresses must never appear in the public data feed
+# (waitlist leads live in a separate table that is never exported, but a
+# regex over the output proves it rather than assuming it).
+EMAIL_PATTERN = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 
 def secret_scan(out_dir: Path) -> list[str]:
     hits = []
     pats = [re.compile(p) for p in SECRET_PATTERNS]
     for f in out_dir.rglob("*"):
-        if not f.is_file() or f.suffix in (".png", ".ico", ".jpg"):
+        if not f.is_file() or f.suffix in (".png", ".ico", ".jpg", ".woff", ".woff2"):
             continue
         try:
             text = f.read_text(encoding="utf-8", errors="ignore")
@@ -353,6 +543,21 @@ def secret_scan(out_dir: Path) -> list[str]:
         for p in pats:
             if p.search(text):
                 hits.append(f"{p.pattern} in {f.relative_to(out_dir)}")
+        if f.suffix == ".json":
+            for m in EMAIL_PATTERN.findall(text):
+                hits.append(f"email address {m!r} in {f.relative_to(out_dir)}")
+    return hits
+
+
+def em_dash_scan(out_dir: Path) -> list[str]:
+    """Every user-visible text artifact must be free of U+2014."""
+    hits = []
+    for f in out_dir.rglob("*"):
+        if not f.is_file() or f.suffix not in (".html", ".json", ".js", ".css", ".txt", ".xml", ".webmanifest"):
+            continue
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        if "\u2014" in text:
+            hits.append(str(f.relative_to(out_dir)))
     return hits
 
 
@@ -371,14 +576,27 @@ def main():
         for h in hits:
             print("  -", h)
         sys.exit(1)
+    dashes = em_dash_scan(out_dir)
+    if dashes:
+        print("EM DASH SCAN FAILED (user-visible U+2014 present):")
+        for h in dashes:
+            print("  -", h)
+        sys.exit(1)
 
+    m = audit["manifest"]
     print(json.dumps({
         "published_ipo_pages": audit["published_ipo_pages"],
-        "upcoming": audit["upcoming"],
+        "pipeline_status": m["pipeline_status"],
+        "upcoming": {k: v for k, v in audit["upcoming"].items() if k != "excluded"},
+        "upcoming_excluded_count": len(audit["upcoming"]["excluded"]),
+        "withdrawn": audit["withdrawn"],
+        "not_ipo": audit["not_ipo"],
+        "duplicates": {k: v for k, v in audit["duplicates"].items() if k != "records"},
         "history": audit["history"],
-        "history_window": [audit["manifest"]["history_window_start"], audit["manifest"]["history_window_end"]],
-        "build_commit": audit["manifest"]["build_commit"],
-        "secret_scan": "clean",
+        "high_confidence_published": audit["high_confidence_published"],
+        "history_window": [m["history_window_start"], m["history_window_end"]],
+        "build_commit": m["build_commit"],
+        "secret_scan": "clean", "em_dash_scan": "clean",
     }, indent=2))
 
 

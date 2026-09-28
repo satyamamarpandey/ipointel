@@ -58,10 +58,26 @@ at the CI-refreshed SQLite snapshot in production.
   per published IPO (`<slug>` derived from the same `external_key` the
   pipeline already uses for deduplication - stable across refreshes)
 - `data/manifest.json` - build timestamp, 5-year window bounds, counts,
-  git commit, model version
-- `data/highlights.json`, `data/upcoming/{india,us}.json`,
-  `data/history/{india,us}-5y.json`, `data/ipo/<id>.json`,
+  git commit, model version, `pipeline_status` (worst status among the
+  REQUIRED sources: SEC EDGAR, SEC Priced IPOs, NSE, NSE Primary Market
+  Reports - never hardcoded), and a full exclusion ledger: every discovered
+  active row that was not published is listed under
+  `counts.upcoming.excluded` with its id and an explicit reason (stale US
+  registration older than 365 days, India issue closed 45+ days without a
+  confirmed listing, non-IPO registration, duplicate issuer record,
+  superseded by a listed record). `counts.not_ipo`, `counts.withdrawn` and
+  `counts.duplicates` are reported separately and never mixed into the
+  active counts.
+- `data/highlights.json`, `data/upcoming/{india,us}.json` (active statuses
+  only: Filed, Upcoming, Open, Closed, Priced), `data/withdrawn.json`,
+  `data/history/{india,us}-5y.json` (Listed IPOs only - NSE's monthly report
+  also lists preferential allotments, QIPs, rights issues and warrant
+  conversions, which are classified `Not IPO` and never published as IPOs),
+  `data/ipo/<id>.json`,
   `data/{track-record,source-health,backtest,model-performance}.json`
+- Every string in every JSON artifact and generated page passes through
+  `app.services.identity.sanitize_tree` - the build fails if any user-visible
+  em dash (U+2014) survives, and `tests/test_pages_build.py` asserts it.
 - `sitemap.xml`, `robots.txt`, `CNAME`, `404.html`
 
 ### Public vs. private data - a real product decision, not an oversight

@@ -2,7 +2,7 @@ from __future__ import annotations
 """Model performance evaluation, split by country and by listing vs long-term model.
 Uses the EARLIEST ScoreSnapshot recorded for each IPO (the score as first computed,
 before any post-listing information could have influenced it) against realized
-PerformanceSnapshot returns. This is a fixed-weight heuristic model (app.scoring) —
+PerformanceSnapshot returns. This is a fixed-weight heuristic model (app.scoring);
 there is no training step, so 'walk-forward' here means out-of-sample-by-construction
 evaluation bucketed by listing year, not train/test weight refitting. Weights in
 app/scoring.py are never adjusted based on these results.
@@ -35,7 +35,7 @@ def _latest_perf_by_ipo(db: Session, ipo_ids: list[int]) -> dict[int, Performanc
     return {r.ipo_id: r for r in rows}
 
 def _auc(pairs: list[tuple[float, int]]) -> float | None:
-    """Mann-Whitney U based AUC — no sklearn dependency."""
+    """Mann-Whitney U based AUC, no sklearn dependency."""
     pos = [p for p, y in pairs if y == 1]
     neg = [p for p, y in pairs if y == 0]
     if not pos or not neg:
@@ -125,7 +125,7 @@ def _model_block(rows: list[dict], score_key: str, prob_key: str, return_key: st
     n = len(usable)
     block = {"sample_size": n, "min_sample_required": MIN_SAMPLE, "band_breakdown": _band_breakdown(rows, score_key, return_key)}
     if n < MIN_SAMPLE:
-        block["status"] = f"insufficient sample (n={n}, need {MIN_SAMPLE}+) — no AUC/Brier/calibration displayed"
+        block["status"] = f"insufficient sample (n={n}, need {MIN_SAMPLE}+): no AUC/Brier/calibration displayed"
         return block
     pairs = [(r[prob_key], 1 if r[return_key] > 0 else 0) for r in usable]
     block.update({

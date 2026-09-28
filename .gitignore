@@ -29,3 +29,4 @@ pgdata/
 backups/
 # sibling FreeResend checkout for docker-compose.email.yml
 freeresend/
+tests_browser/qa_pages_static_report.json
