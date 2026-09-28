@@ -937,3 +937,4 @@ html,body{overflow-x:clip}
   .toolbar select{flex:1 1 calc(50% - 5px);min-width:0}
   .table tr[data-status="Open"] td:first-child b:after{display:block;margin:2px 0 0}
 }
+.permalink{color:var(--accent,inherit);text-decoration:underline;text-underline-offset:2px}

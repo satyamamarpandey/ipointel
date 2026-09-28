@@ -99,6 +99,14 @@ def _fetch_json(base, rel):
 def _detail_slug(base, ipo_id, page):
     """Slug lookup: from dist/ipo/*/index.html when serving locally, else by
     reading the live sitemap and probing candidates that embed the id."""
+    # Preferred: the detail artifact carries its own permalink.
+    try:
+        art = _fetch_json(base, f"/data/ipo/{ipo_id}.json") if LIVE_BASE else json.loads((DIST / "data" / "ipo" / f"{ipo_id}.json").read_text(encoding="utf-8"))
+        slug = (art.get("page") or {}).get("slug")
+        if slug:
+            return slug
+    except Exception:
+        pass
     if LIVE_BASE is None:
         return next((d.name for d in (DIST / "ipo").iterdir() if (d / "index.html").exists() and f'data-ipo-id="{ipo_id}"' in (d / "index.html").read_text(encoding="utf-8")), None)
     import re, urllib.request

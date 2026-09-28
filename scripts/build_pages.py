@@ -302,6 +302,9 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
             "valuation": M.ipo_valuation_detail(ipo_id=ipo.id, db=db, _lead=None),
             "similar": similarity_svc.find_similar(db, ipo, candidates=listed_by_country.get(ipo.country, [])),
             "changes": M.ipo_changes(ipo_id=ipo.id, db=db, _lead=None),
+            # Stable permalink for this record, so the dashboard, QA and any
+            # consumer can reach the standalone page without guessing slugs.
+            "page": {"slug": id_to_slug[ipo.id], "url": f"{base_url}/ipo/{id_to_slug[ipo.id]}/"},
         }
 
     published = upcoming + withdrawn + history_in

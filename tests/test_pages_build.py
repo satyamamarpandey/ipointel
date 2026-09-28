@@ -295,3 +295,18 @@ def test_attribution_backlinks_are_followable_on_every_public_page(build_dist):
             anchor = m.group(0)
             assert 'target="_blank"' in anchor and "noopener" in anchor and "noreferrer" in anchor
             assert "nofollow" not in anchor, f"{page.name}: {href} backlink must stay followable"
+
+
+def test_detail_artifacts_carry_a_permalink_that_resolves_to_a_built_page(build_dist):
+    manifest = _load(build_dist, "data/manifest.json")
+    sitemap = set(_sitemap_urls(build_dist))
+    checked = 0
+    for art in sorted((build_dist / "data" / "ipo").glob("*.json"))[:25]:
+        payload = json.loads(art.read_text(encoding="utf-8"))
+        page = payload.get("page") or {}
+        assert page.get("slug"), f"{art.name} has no page.slug"
+        assert (build_dist / "ipo" / page["slug"] / "index.html").exists(), f"{art.name}: /ipo/{page['slug']}/ was not built"
+        assert page["url"].startswith(manifest["base_url"]) and page["url"] in sitemap
+        assert f'data-ipo-id="{art.stem}"' in (build_dist / "ipo" / page["slug"] / "index.html").read_text(encoding="utf-8")
+        checked += 1
+    assert checked > 0

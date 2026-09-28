@@ -168,7 +168,7 @@
         let full;
         try { full = await getJSON(DATA + 'ipo/' + ipoMatch[1] + '.json'); } catch (e) { return json({ detail: 'IPO not found' }, 404); }
         const sub = ipoMatch[3];
-        if (!sub) return json(full.detail);
+        if (!sub) return json(full.page ? { ...full.detail, page_url: full.page.url } : full.detail);
         return json(full[sub]);
       }
       // First-party analytics beacon (app/main.py's /api/events) logs
