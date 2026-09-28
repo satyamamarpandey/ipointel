@@ -48,6 +48,8 @@ def split_adjusted_issue_price(issue_price:float|None,listing_ts:float,splits:li
 # (unadjusted issue price vs. split-adjusted closes, a mis-parsed price, a
 # reassigned ticker). Such a value is suppressed and noted, never published.
 IMPLAUSIBLE_LISTING_RETURN_PCT=2000.0
+# How many days before the stated listing date a symbol's first bar may fall and still be the listing session.
+FIRST_BAR_TOLERANCE_DAYS=4
 
 def resolve_symbol_by_isin(isin:str,country:str)->tuple[str,str]:
     """ISIN -> exchange ticker via Yahoo's search endpoint (Tier 3). Returns
@@ -106,11 +108,19 @@ def windowed_returns(bars:list[dict],listing_dt:datetime,issue_price:float|None=
     Nothing here ever anchors to "whatever the price is today"."""
     if not bars or listing_dt is None:return {}
     listing_ts=listing_dt.timestamp()
-    listing_bar=bar_on_or_after(bars,listing_ts)
+    # The stored listing date for US rows is the 424B4 filing date, which can
+    # trail the first trading session by a day or two; India report dates are
+    # exact. A newly listed symbol's price history starts on its first session,
+    # so when the first bar falls within a few days before the stated date it
+    # IS the listing session and is used as the anchor.
+    first=bars[0]
+    if listing_ts-FIRST_BAR_TOLERANCE_DAYS*86400<=first["ts"]<=listing_ts+14*86400:listing_bar=first
+    else:listing_bar=bar_on_or_after(bars,listing_ts)
     if not listing_bar:return {}
     # A first bar more than 10 trading days after the stated listing date is
     # not the listing session (symbol reassigned, or history starts late).
     if listing_bar["ts"]-listing_ts>14*86400:return {}
+    listing_ts=listing_bar["ts"]
     listing_close=listing_bar["close"] or None
     listing_open=listing_bar.get("open") or None
     out={"listing_date_used":datetime.fromtimestamp(listing_bar["ts"],tz=timezone.utc).date().isoformat(),"listing_close":listing_close,"listing_open":listing_open,"base":"issue_price" if issue_price else "listing_close"}

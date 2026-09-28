@@ -398,3 +398,17 @@ def test_priced_ipo_never_takes_a_par_value_or_a_table_total_as_the_price():
     assert sec.parse_priced_ipo(text)["final_price"] == 4.0
     only_par = "This is our initial public offering of common stock, par value $0.0001 per share. Underwriting discounts and commissions"
     assert sec.parse_priced_ipo(only_par)["final_price"] is None
+
+
+def test_listing_anchor_is_the_first_session_when_the_stated_date_trails_it():
+    from app.services import market
+    day = 86400
+    first_session = datetime(2022, 8, 18, tzinfo=timezone.utc)
+    bars = [{"ts": first_session.timestamp() + i * day, "open": 19.2 if i == 0 else 26.6, "close": [15.69, 48.01, 41.41, 26.64][min(i, 3)]} for i in range(0, 30)]
+    # Stored listing date is the 424B4 filing date, one day after the first session.
+    wr = market.windowed_returns(bars, first_session + timedelta(days=1), issue_price=12.25)
+    assert wr["listing_date_used"] == "2022-08-18" and abs(wr["listing_return_pct"] - (15.69 / 12.25 - 1) * 100) < 1e-6
+    # A history that starts long before the stated date is an existing listing: keep the stated date.
+    old_bars = [{"ts": (first_session - timedelta(days=400)).timestamp() + i * day, "open": 1.0, "close": 1.0} for i in range(0, 500)]
+    wr2 = market.windowed_returns(old_bars, first_session, issue_price=1.0)
+    assert wr2["listing_date_used"] == "2022-08-18"

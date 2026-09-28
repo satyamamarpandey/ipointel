@@ -355,6 +355,20 @@ def purge_implausible_performance(db: Session, threshold_pct: float = 300.0) -> 
     return {"snapshots_deleted": len(bad), "ipos_affected": len(ipo_ids), "snapshots_recomputed": recomputed}
 
 
+def recompute_all_performance(db: Session, *, limit: int) -> dict:
+    """Drop every performance snapshot of Listed rows that have a symbol and
+    recompute up to `limit` of them now; the rest follow on later passes
+    (rows without a snapshot are fetched first). Used once after a change in
+    how returns are calculated, so every published figure is on the same basis."""
+    ipo_ids = db.scalars(select(IPO.id).where(IPO.status == "Listed", IPO.symbol != "")).all()
+    deleted = 0
+    for snap in db.scalars(select(PerformanceSnapshot).where(PerformanceSnapshot.ipo_id.in_(ipo_ids))).all():
+        db.delete(snap)
+        deleted += 1
+    db.commit()
+    return {"snapshots_deleted": deleted, "ipos_pending": len(ipo_ids), "snapshots_recomputed": refresh_market_performance(db, limit=limit)}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--days", type=int, default=int(os.environ.get("BACKFILL_US_DAYS", "260")), help="business days to scan this run")
@@ -365,8 +379,10 @@ def main() -> int:
     ap.add_argument("--repair-limit", type=int, default=400)
     ap.add_argument("--recompute-suspect-performance", action="store_true",
                     help="delete listing returns beyond +/-300%% (unit mismatches) and recompute them split-aware")
+    ap.add_argument("--recompute-all-performance", type=int, default=0, metavar="N",
+                    help="drop all performance snapshots of listed rows with a symbol and recompute N of them now")
     args = ap.parse_args()
-    if args.days <= 0 and not args.repair_existing and not args.recompute_suspect_performance:
+    if args.days <= 0 and not args.repair_existing and not args.recompute_suspect_performance and args.recompute_all_performance <= 0:
         print("backfill: nothing to do (days <= 0)")
         return 0
     init_db()
@@ -375,7 +391,9 @@ def main() -> int:
         if args.repair_existing:
             rep = repair_existing_us_listed(db, limit=args.repair_limit, max_minutes=min(args.max_minutes, 15.0))
             print(f"{REPAIR_SOURCE}: {rep.status} {rep.metadata_json}" + (f" - {rep.error}" if rep.error else ""))
-        if args.recompute_suspect_performance:
+        if args.recompute_all_performance > 0:
+            print(f"performance full recompute: {recompute_all_performance(db, limit=args.recompute_all_performance)}")
+        elif args.recompute_suspect_performance:
             print(f"performance recompute: {purge_implausible_performance(db)}")
         if args.days <= 0:
             return 0
