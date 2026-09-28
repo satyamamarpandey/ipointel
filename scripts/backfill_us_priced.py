@@ -76,10 +76,9 @@ def last_completed_day(db: Session) -> date | None:
 def recorded_target_end(db: Session) -> date | None:
     """The end day fixed by the first backfill run. Recomputing it later from
     the database would see the backfill's own (older) rows and stop early."""
-    for r in previous_runs(db):
-        if r.metadata_json and r.metadata_json.get("target_end"):
-            return date.fromisoformat(r.metadata_json["target_end"])
-    return None
+    ends = [date.fromisoformat(r.metadata_json["target_end"]) for r in previous_runs(db) if r.metadata_json and r.metadata_json.get("target_end")]
+    # max(): a run that mis-derived a too-early end (there was one) must not shrink the window for later runs.
+    return max(ends) if ends else None
 
 
 def earliest_live_listing(db: Session) -> date | None:

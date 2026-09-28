@@ -129,3 +129,11 @@ def test_backfilled_rows_are_marked_classified_so_repair_skips_them(db, monkeypa
     row = db.scalar(select(IPO).where(IPO.external_key == "US:9000010"))
     assert sec.CLASSIFIED_MARKER in row.data_flags and REPARSED_FLAG in row.data_flags
     assert row not in repair_candidates(db, 1000)
+
+
+def test_recorded_target_end_is_the_furthest_one(db):
+    from scripts.backfill_us_priced import recorded_target_end
+    db.add_all([IngestionRun(source=SOURCE, status="ok", metadata_json={"through": "2022-09-26", "target_end": "2025-10-23"}),
+                IngestionRun(source=SOURCE, status="ok", metadata_json={"through": "2022-09-26", "target_end": "2021-09-27"})])
+    db.commit()
+    assert recorded_target_end(db) == date(2025, 10, 23)
