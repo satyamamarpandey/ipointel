@@ -2,7 +2,8 @@
 server (never FastAPI) - exactly how the production site is hosted.
 
   python scripts/build_pages.py --out dist
-  python tests_browser/qa_pages_static.py [dist_dir] [--keep]
+  python tests_browser/qa_pages_static.py [dist_dir]
+  python tests_browser/qa_pages_static.py https://ipointel.brandsap.com   # live domain
 
 Serves dist/ on a local port with extensionless-route and 404.html handling
 that mirrors GitHub Pages, then drives Chromium through landing, dashboard
@@ -89,12 +90,51 @@ def wait_rows(page, selector, tag, min_rows=1, timeout=15000):
         results["errors"].append(f"[{tag}] fewer than {min_rows} rows in {selector}")
 
 
+def _fetch_json(base, rel):
+    import urllib.request
+    with urllib.request.urlopen(base + rel, timeout=30) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def _detail_slug(base, ipo_id, page):
+    """Slug lookup: from dist/ipo/*/index.html when serving locally, else by
+    reading the live sitemap and probing candidates that embed the id."""
+    if LIVE_BASE is None:
+        return next((d.name for d in (DIST / "ipo").iterdir() if (d / "index.html").exists() and f'data-ipo-id="{ipo_id}"' in (d / "index.html").read_text(encoding="utf-8")), None)
+    import re, urllib.request
+    with urllib.request.urlopen(base + "/sitemap.xml", timeout=30) as r:
+        urls = re.findall(r"<loc>([^<]+/ipo/[^<]+)</loc>", r.read().decode("utf-8"))
+    for u in urls:
+        if u.rstrip("/").endswith(f"-{ipo_id}") or u.rstrip("/").endswith(f"/{ipo_id}"):
+            return u.rstrip("/").split("/")[-1]
+    # fall back: probe the first few pages of each market for the id
+    for u in urls[:400]:
+        try:
+            with urllib.request.urlopen(u, timeout=30) as r:
+                if f'data-ipo-id="{ipo_id}"' in r.read().decode("utf-8"):
+                    return u.rstrip("/").split("/")[-1]
+        except Exception:
+            continue
+    return None
+
+
+LIVE_BASE = next((a for a in sys.argv[1:] if a.startswith("http")), None)
+
+
 def run():
-    httpd, base = serve()
-    manifest = json.loads((DIST / "data" / "manifest.json").read_text(encoding="utf-8"))
-    upcoming_in = json.loads((DIST / "data" / "upcoming" / "india.json").read_text(encoding="utf-8"))
-    upcoming_us = json.loads((DIST / "data" / "upcoming" / "us.json").read_text(encoding="utf-8"))
-    history_in = json.loads((DIST / "data" / "history" / "india-5y.json").read_text(encoding="utf-8"))
+    if LIVE_BASE:
+        httpd, base = None, LIVE_BASE.rstrip("/")
+        manifest = _fetch_json(base, "/data/manifest.json")
+        upcoming_in = _fetch_json(base, "/data/upcoming/india.json")
+        upcoming_us = _fetch_json(base, "/data/upcoming/us.json")
+        history_in = _fetch_json(base, "/data/history/india-5y.json")
+    else:
+        httpd, base = serve()
+        manifest = json.loads((DIST / "data" / "manifest.json").read_text(encoding="utf-8"))
+        upcoming_in = json.loads((DIST / "data" / "upcoming" / "india.json").read_text(encoding="utf-8"))
+        upcoming_us = json.loads((DIST / "data" / "upcoming" / "us.json").read_text(encoding="utf-8"))
+        history_in = json.loads((DIST / "data" / "history" / "india-5y.json").read_text(encoding="utf-8"))
+    slug_cache = {}
     with sync_playwright() as p:
         browser = p.chromium.launch()
         for name, w, h in VIEWPORTS:
@@ -179,14 +219,15 @@ def run():
             check_page(page, name + " detail pane", "Confidence")
             # ---- standalone IPO detail pages (one India, one US, one history)
             for row in [x for x in (upcoming_in[:1] + upcoming_us[:1] + history_in[:1])]:
-                slug_dir = next((d for d in (DIST / "ipo").iterdir() if (d / "index.html").exists() and f'data-ipo-id="{row["id"]}"' in (d / "index.html").read_text(encoding="utf-8")), None)
-                if not slug_dir:
+                slug = slug_cache.get(row["id"]) or _detail_slug(base, row["id"], page)
+                slug_cache[row["id"]] = slug
+                if not slug:
                     results["errors"].append(f"[{name}] no detail page for IPO {row['id']}"); continue
-                t0 = time.time(); page.goto(f"{base}/ipo/{slug_dir.name}/", wait_until="networkidle"); results["timings_ms"][f"detail@{name}"] = round((time.time() - t0) * 1000)
+                t0 = time.time(); page.goto(f"{base}/ipo/{slug}/", wait_until="networkidle"); results["timings_ms"][f"detail@{name}"] = round((time.time() - t0) * 1000)
                 page.wait_for_function("document.querySelector('#pagesDetail h1') !== null", timeout=10000)
-                check_page(page, f"{name} ipo:{slug_dir.name}", "Evidence stack")
+                check_page(page, f"{name} ipo:{slug}", "Evidence stack")
                 if "insufficient reliable data" in page.inner_text("#pagesDetail").lower() and "withheld by design" not in page.inner_text("#pagesDetail").lower():
-                    results["errors"].append(f"[{name}] gated recommendation shown without explanation on {slug_dir.name}")
+                    results["errors"].append(f"[{name}] gated recommendation shown without explanation on {slug}")
             # ---- static pages
             for path, text in (("/privacy", "Privacy"), ("/terms", "Terms"), ("/login/", "Sign in")):
                 page.goto(base + path, wait_until="networkidle"); check_page(page, f"{name} {path}", text)
@@ -199,7 +240,8 @@ def run():
                 results["errors"].append(f"[{name}] 404 page missing Home/Dashboard links")
             ctx.close()
         browser.close()
-    httpd.shutdown()
+    if httpd:
+        httpd.shutdown()
     results["manifest"] = {"generated_at": manifest["generated_at"], "pipeline_status": manifest["pipeline_status"], "published_ipo_pages": manifest["published_ipo_pages"]}
     results["sme_rows_india_sample"] = sme_rows
     out = ROOT / "tests_browser" / "qa_pages_static_report.json"

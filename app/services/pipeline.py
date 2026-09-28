@@ -29,6 +29,9 @@ def now(): return datetime.now(timezone.utc)
 # a genuine numeric-leading name ("1-800-FLOWERS.COM", "3i Infotech",
 # "5paisa Capital", "360 ONE WAM") never has " - " after the digits.
 _SEC_FORM_ARTIFACT=re.compile(r"^\d{1,2}(?:/[A-Z]+)?\s+-\s+")
+# Trailing EDGAR title artifact "(0001804792) (Filer)" left on rows stored by
+# an older atom parser that did not capture the CIK group.
+_SEC_CIK_ARTIFACT=re.compile(r"\s*\(\d{7,10}\)\s*\((?:Filer|Subject|Reporting Owner|Issuer)\)\s*$",re.I)
 
 def clean_company_name(name:str,country:str="")->str:
     """Company names arrive from EDGAR atom titles and NSE/BSE report sheets,
@@ -40,6 +43,7 @@ def clean_company_name(name:str,country:str="")->str:
     # an Indian issuer that legitimately starts with digits out of reach.
     if country.lower() in ("united states","us","usa"):
         cleaned=_SEC_FORM_ARTIFACT.sub("",cleaned).strip()
+        cleaned=_SEC_CIK_ARTIFACT.sub("",cleaned).strip()
     return cleaned
 
 def repair_company_names(db:Session)->int:

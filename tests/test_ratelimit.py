@@ -32,14 +32,22 @@ def test_window_expiry_lets_a_client_back_in():
     assert lim.hit("ip", 1, 0.05) is False
 
 
-def test_a_blocked_attempt_does_not_extend_the_lockout():
+def test_a_blocked_attempt_does_not_extend_the_lockout(monkeypatch):
     """A client hammering while blocked must not keep pushing its own window
-    forward - otherwise the penalty grows without bound under load."""
+    forward - otherwise the penalty grows without bound under load.
+
+    Uses a controlled clock: with a real 50 ms window this test was flaky on
+    a loaded machine (a stalled loop iteration let the window expire early),
+    which says nothing about the limiter."""
+    import app.services.ratelimit as rl
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(rl.time, "monotonic", lambda: clock["t"])
     lim = SlidingWindowLimiter()
     assert lim.hit("ip", 1, 0.05) is False
-    for _ in range(20):
+    for i in range(20):
+        clock["t"] = 1000.0 + 0.002 * (i + 1)  # 20 blocked attempts inside the window
         assert lim.hit("ip", 1, 0.05) is True
-    time.sleep(0.06)
+    clock["t"] = 1000.0 + 0.06  # 60 ms after the ONLY recorded hit
     assert lim.hit("ip", 1, 0.05) is False
 
 

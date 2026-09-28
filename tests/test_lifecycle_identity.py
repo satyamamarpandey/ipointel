@@ -299,3 +299,10 @@ def test_pipeline_status_is_the_worst_required_source():
     assert pipeline_status(rows) == "PARTIAL"  # optional feed failure does not count
     rows[1]["public_status"] = "FAILED"
     assert pipeline_status(rows) == "FAILED"
+
+
+def test_clean_company_name_strips_trailing_edgar_cik_artifact():
+    from app.services.pipeline import clean_company_name
+    assert clean_company_name("ARES STRATEGIC MINING INC. (0001804792) (Filer)", "United States") == "ARES STRATEGIC MINING INC."
+    assert clean_company_name("1 - ACME, INC. (0001234567) (Filer)", "United States") == "ACME, INC."
+    assert clean_company_name("Some India Co (1234567) (Filer)", "India") == "Some India Co (1234567) (Filer)"  # SEC-only rule
