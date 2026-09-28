@@ -40,9 +40,9 @@ from sqlalchemy.orm import Session  # noqa: E402
 
 from app.config import get_settings  # noqa: E402
 from app.db import SessionLocal, init_db  # noqa: E402
-from app.models import IPO, IngestionRun  # noqa: E402
+from app.models import IPO, IngestionRun, PerformanceSnapshot  # noqa: E402
 from app.services import sec  # noqa: E402
-from app.services.pipeline import upsert_ipo, add_provenance  # noqa: E402
+from app.services.pipeline import upsert_ipo, add_provenance, refresh_market_performance  # noqa: E402
 
 SOURCE = "SEC 424B4 backfill"
 REPAIR_SOURCE = "SEC 424B4 repair"
@@ -54,6 +54,7 @@ INCONCLUSIVE_FLAG = f"424b4_reparsed: inconclusive (cover page not within the fi
 UNKNOWN_FLAG = "424b4_reparsed: inconclusive (prospectus states neither an IPO nor a prior listing)"
 RECHECKED_FLAG = "424b4_reparsed: not-ipo verdict re-checked against the cover page"
 PRICE_V2_FLAG = "424b4_reparsed: price and symbol verified against the cover page (v2)"
+PRICE_V3_FLAG = "424b4_reparsed: implausible price re-read (v3)"
 
 
 def window_start(today: date, years: int = WINDOW_YEARS) -> date:
@@ -197,9 +198,13 @@ def repair_candidates(db: Session, limit: int) -> list[IPO]:
     out: list[IPO] = []
     for ipo in rows:
         flags = ipo.data_flags or []
-        if PRICE_V2_FLAG in flags or INCONCLUSIVE_FLAG in flags or UNKNOWN_FLAG in flags:
+        suspect = ipo.final_price is not None and not (sec.PRICE_MIN <= ipo.final_price <= sec.PRICE_MAX)
+        if suspect and PRICE_V3_FLAG not in flags:
+            out.append(ipo)  # a par value or a table total was stored as the price: re-read regardless of flags
+        elif PRICE_V2_FLAG in flags or INCONCLUSIVE_FLAG in flags or UNKNOWN_FLAG in flags:
             continue  # already verified with the cover-page extractor, or deliberately left alone
-        out.append(ipo)
+        else:
+            out.append(ipo)
         if len(out) >= limit:
             break
     return out
@@ -272,7 +277,7 @@ def repair_existing_us_listed(db: Session, *, limit: int, max_minutes: float, lo
             warnings.append(f"{ipo.company}: {type(e).__name__}")
             continue
         checked += 1
-        flags = [f for f in (ipo.data_flags or []) if f not in (sec.CLASSIFIED_MARKER, REPARSED_FLAG, PRICE_V2_FLAG)]
+        flags = [f for f in (ipo.data_flags or []) if f not in (sec.CLASSIFIED_MARKER, REPARSED_FLAG, PRICE_V2_FLAG, PRICE_V3_FLAG)]
         if truncated and "initial public offering" not in flat.lower():
             # The cover page was not reached; the row keeps its status. Never
             # reclassify on evidence we did not actually read.
@@ -286,7 +291,7 @@ def repair_existing_us_listed(db: Session, *, limit: int, max_minutes: float, lo
             inconclusive += 1
             db.commit()
             continue
-        flags += [sec.CLASSIFIED_MARKER, REPARSED_FLAG, PRICE_V2_FLAG]
+        flags += [sec.CLASSIFIED_MARKER, REPARSED_FLAG, PRICE_V2_FLAG, PRICE_V3_FLAG]
         if verdict == "follow_on":
             ipo.status = "Not IPO"
             if NON_IPO_FLAG not in flags:
@@ -302,10 +307,21 @@ def repair_existing_us_listed(db: Session, *, limit: int, max_minutes: float, lo
                 ipo.symbol = parsed["symbol"]
                 add_provenance(db, ipo, "symbol", ipo.symbol, "SEC 424B4", ipo.filing_url, 1)
                 filled += 1
-            if parsed.get("final_price") is not None and ipo.final_price != parsed["final_price"]:
-                ipo.final_price = parsed["final_price"]
-                add_provenance(db, ipo, "final_price", ipo.final_price, "SEC 424B4", ipo.filing_url, 1)
+            new_price = parsed.get("final_price")
+            if new_price is None and ipo.final_price is not None and not (sec.PRICE_MIN <= ipo.final_price <= sec.PRICE_MAX):
+                new_price = None  # nothing plausible on the cover: an absent price beats a wrong one
+                price_changed = True
+            else:
+                price_changed = new_price is not None and ipo.final_price != new_price
+            if price_changed:
+                ipo.final_price = new_price
+                add_provenance(db, ipo, "final_price", "" if new_price is None else new_price, "SEC 424B4", ipo.filing_url, 1)
                 filled += 1
+                # Returns were computed against the old price: drop them so the
+                # next market pass recomputes from scratch (it prioritises rows
+                # without a snapshot).
+                for snap in db.scalars(select(PerformanceSnapshot).where(PerformanceSnapshot.ipo_id == ipo.id)).all():
+                    db.delete(snap)
         ipo.data_flags = flags
         ipo.updated_at = datetime.now(timezone.utc)
         db.commit()
@@ -324,6 +340,21 @@ def repair_existing_us_listed(db: Session, *, limit: int, max_minutes: float, lo
     return run
 
 
+def purge_implausible_performance(db: Session, threshold_pct: float = 300.0) -> dict:
+    """Delete performance snapshots whose listing return is a unit mismatch
+    (unadjusted issue price against split-adjusted closes, or a mis-parsed
+    price) rather than a market outcome, then recompute them with the
+    split-aware calculation. Derived data only; source rows are untouched."""
+    bad = db.scalars(select(PerformanceSnapshot).where(PerformanceSnapshot.listing_return_pct.isnot(None))).all()
+    bad = [snap for snap in bad if abs(snap.listing_return_pct) > threshold_pct]
+    ipo_ids = {snap.ipo_id for snap in bad}
+    for snap in bad:
+        db.delete(snap)
+    db.commit()
+    recomputed = refresh_market_performance(db, limit=max(1, len(ipo_ids))) if ipo_ids else 0
+    return {"snapshots_deleted": len(bad), "ipos_affected": len(ipo_ids), "snapshots_recomputed": recomputed}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--days", type=int, default=int(os.environ.get("BACKFILL_US_DAYS", "260")), help="business days to scan this run")
@@ -332,8 +363,10 @@ def main() -> int:
     ap.add_argument("--end", type=date.fromisoformat, default=None, help="override end day (YYYY-MM-DD)")
     ap.add_argument("--repair-existing", action="store_true", help="re-read existing US Listed 424B4 rows first (classification, symbol, price)")
     ap.add_argument("--repair-limit", type=int, default=400)
+    ap.add_argument("--recompute-suspect-performance", action="store_true",
+                    help="delete listing returns beyond +/-300%% (unit mismatches) and recompute them split-aware")
     args = ap.parse_args()
-    if args.days <= 0 and not args.repair_existing:
+    if args.days <= 0 and not args.repair_existing and not args.recompute_suspect_performance:
         print("backfill: nothing to do (days <= 0)")
         return 0
     init_db()
@@ -342,6 +375,8 @@ def main() -> int:
         if args.repair_existing:
             rep = repair_existing_us_listed(db, limit=args.repair_limit, max_minutes=min(args.max_minutes, 15.0))
             print(f"{REPAIR_SOURCE}: {rep.status} {rep.metadata_json}" + (f" - {rep.error}" if rep.error else ""))
+        if args.recompute_suspect_performance:
+            print(f"performance recompute: {purge_implausible_performance(db)}")
         if args.days <= 0:
             return 0
         run = backfill(db, days=args.days, max_minutes=args.max_minutes, start=args.start, end=args.end)

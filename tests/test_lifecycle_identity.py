@@ -316,7 +316,7 @@ def test_priced_ipo_price_regex_does_not_swallow_sentence_punctuation():
            "Our shares will trade under the symbol RUIH.")
     parsed = sec.parse_priced_ipo(txt)
     assert parsed["final_price"] == 1.0 and parsed["symbol"] == "RUIH"
-    assert sec.parse_priced_ipo("This is our initial public offering. initial public offering price of $1,250.50 per share")["final_price"] == 1250.5
+    assert sec.parse_priced_ipo("This is our initial public offering. initial public offering price of $250.50 per share")["final_price"] == 250.5
     assert sec.parse_price_range("offering price between $4 and $6 per share") == (4.0, 6.0)
 
 
@@ -372,3 +372,29 @@ def test_market_refresh_prioritises_rows_without_any_snapshot(db):
     ipos, _ = market_refresh_candidates(db, limit=500)
     keys = [i.external_key for i in ipos]
     assert keys.index("US:mrc1") < keys.index("US:mrc2")
+
+
+# ------------------------------------------------ split-adjusted returns -----
+
+def test_listing_return_uses_split_adjusted_issue_price():
+    from app.services import market
+    listing = datetime(2023, 4, 13, tzinfo=timezone.utc)
+    day = 86400
+    # Yahoo shows the listing-day close already multiplied by later reverse splits (1:49 then 1:20 -> x980).
+    bars = [{"ts": listing.timestamp() + i * day, "open": 4.0 * 980, "close": 4.0 * 980} for i in range(0, 40)]
+    splits = [{"ts": listing.timestamp() + 10 * day, "factor": 49.0}, {"ts": listing.timestamp() + 20 * day, "factor": 20.0}]
+    wr = market.windowed_returns(bars, listing, issue_price=4.0, splits=splits)
+    assert abs(wr["listing_return_pct"]) < 1e-6 and abs(wr["issue_price_split_factor"] - 980) < 1e-6
+    # Without split data the same numbers are a unit mismatch and are suppressed, never published.
+    wr2 = market.windowed_returns(bars, listing, issue_price=4.0)
+    assert "listing_return_pct" not in wr2 and "suppressed" in wr2["listing_return_note"]
+    assert market.parse_splits({"splits": {"1": {"date": 1, "numerator": 1, "denominator": 30}, "2": {"date": 2, "numerator": 2, "denominator": 1}}}) == [
+        {"ts": 1.0, "factor": 30.0}, {"ts": 2.0, "factor": 0.5}]
+
+
+def test_priced_ipo_never_takes_a_par_value_or_a_table_total_as_the_price():
+    text = ("This is our initial public offering. The initial public offering price per share of our common stock, par value $0.0001 "
+            "per share, is $4.00 per share. Price to public $ 4.00 $ 13,050,000 Underwriting discounts and commissions")
+    assert sec.parse_priced_ipo(text)["final_price"] == 4.0
+    only_par = "This is our initial public offering of common stock, par value $0.0001 per share. Underwriting discounts and commissions"
+    assert sec.parse_priced_ipo(only_par)["final_price"] is None

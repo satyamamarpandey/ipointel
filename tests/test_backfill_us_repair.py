@@ -118,3 +118,41 @@ def test_repair_corrects_a_price_stored_by_the_older_parser(db, monkeypatch):
     monkeypatch.setattr(sec, "filing_head", lambda url, ua, n=0: (calls.append(url) or text, False))
     repair_existing_us_listed(db, limit=50, max_minutes=5)
     assert calls == []
+
+
+def test_repair_replaces_a_par_value_price_and_drops_its_returns(db, monkeypatch):
+    from app.models import PerformanceSnapshot
+    from scripts.backfill_us_priced import PRICE_V2_FLAG, PRICE_V3_FLAG, REPARSED_FLAG
+    row = IPO(external_key="US:9100008", company="Par Value Corp", country="United States", status="Listed", symbol="PARV",
+              final_price=0.0001, filing_url="https://www.sec.gov/Archives/edgar/data/9100008/h.txt",
+              data_flags=[sec.CLASSIFIED_MARKER, REPARSED_FLAG, PRICE_V2_FLAG])
+    db.add(row)
+    db.flush()
+    db.add(PerformanceSnapshot(ipo_id=row.id, as_of_date="2026-09-01", close_price=3.0, listing_return_pct=2999900.0, source_name="t", source_url="u"))
+    db.commit()
+    text = ("This is our initial public offering. The initial public offering price per share of our common stock, par value $0.0001, "
+            "is $4.00 per share. Our common stock has been approved for listing on Nasdaq under the symbol PARV. "
+            "Price to public $ 4.00 Underwriting discounts and commissions $ 0.28")
+    monkeypatch.setattr(sec, "filing_head", lambda url, ua, n=0: (text, False))
+    repair_existing_us_listed(db, limit=50, max_minutes=5)
+    db.refresh(row)
+    assert row.final_price == 4.0 and PRICE_V3_FLAG in row.data_flags
+    assert db.query(PerformanceSnapshot).filter_by(ipo_id=row.id).count() == 0
+
+
+def test_purge_implausible_performance_deletes_unit_mismatches_only(db, monkeypatch):
+    from app.models import PerformanceSnapshot
+    from scripts.backfill_us_priced import purge_implausible_performance
+    import scripts.backfill_us_priced as bf
+    ok = IPO(external_key="US:9100009", company="Fine Co", country="United States", status="Listed", symbol="FINE", final_price=10.0)
+    bad = IPO(external_key="US:9100010", company="Split Co", country="United States", status="Listed", symbol="SPLT", final_price=4.0)
+    db.add_all([ok, bad])
+    db.flush()
+    db.add_all([PerformanceSnapshot(ipo_id=ok.id, as_of_date="2026-09-01", close_price=12.0, listing_return_pct=20.0, source_name="t", source_url="u"),
+                PerformanceSnapshot(ipo_id=bad.id, as_of_date="2026-09-01", close_price=1.7, listing_return_pct=1693439900.0, source_name="t", source_url="u")])
+    db.commit()
+    monkeypatch.setattr(bf, "refresh_market_performance", lambda db, limit: 0)
+    stats = purge_implausible_performance(db)
+    assert stats["snapshots_deleted"] == 1 and stats["ipos_affected"] == 1
+    assert db.query(PerformanceSnapshot).filter_by(ipo_id=ok.id).count() == 1
+    assert db.query(PerformanceSnapshot).filter_by(ipo_id=bad.id).count() == 0

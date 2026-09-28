@@ -429,7 +429,7 @@ def refresh_market_performance(db:Session,limit=40):
             bars=h["prices"]
             if not bars:continue
             listing_dt=market.parse_date(ipo.listing_date)
-            wr=market.windowed_returns(bars,listing_dt,issue_price=ipo.final_price) if listing_dt else {}
+            wr=market.windowed_returns(bars,listing_dt,issue_price=ipo.final_price,splits=h.get("splits")) if listing_dt else {}
             latest=bars[-1]
             snap=PerformanceSnapshot(
                 ipo_id=ipo.id,

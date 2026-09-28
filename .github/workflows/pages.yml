@@ -99,7 +99,7 @@ jobs:
         continue-on-error: true
         env:
           DATABASE_URL: sqlite:///./data/ipo.db
-        run: python scripts/backfill_us_priced.py --repair-existing --days "${{ github.event.inputs.backfill_us_days }}" --max-minutes 45
+        run: python scripts/backfill_us_priced.py --repair-existing --recompute-suspect-performance --days "${{ github.event.inputs.backfill_us_days }}" --max-minutes 45
 
       - name: Build static site
         env:

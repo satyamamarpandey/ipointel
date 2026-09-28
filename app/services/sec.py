@@ -86,6 +86,23 @@ def _money(raw:str):
     try: return float(raw.replace(",",""))
     except (TypeError,ValueError): return None
 
+# A per-share IPO price outside this band is a table total ("$13,050,000") or
+# a par value ("$0.0001"), never an offering price.
+PRICE_MIN,PRICE_MAX=0.5,500.0
+
+def _price(raw:str):
+    v=_money(raw)
+    return v if v is not None and PRICE_MIN<=v<=PRICE_MAX else None
+
+def _price_match(pattern:str,scope:str):
+    """First match whose captured amount is a plausible per-share price and
+    whose gap text is not a par-value clause ("... par value $0.0001")."""
+    for m in re.finditer(pattern,scope,re.I):
+        if "par value" in scope[max(0,m.start()):m.start(1)].lower():continue
+        v=_price(m.group(1))
+        if v is not None:return v
+    return None
+
 def parse_price_range(text:str):
     patterns=[
       rf"initial public offering price(?: is| will be)? expected to be between\s*\$\s*({_MONEY})\s+and\s+\$\s*({_MONEY})",
@@ -390,16 +407,14 @@ def parse_priced_ipo(text:str):
     def _loose_price(scope:str):
         for m in re.finditer(_LOOSE,scope,re.I):
             before=scope[max(0,m.start()-160):m.start()].lower()
-            if "warrant" in before or "exercis" in before or "option" in before:continue
-            v=_money(m.group(1))
+            if "warrant" in before or "exercis" in before or "option" in before or "par value" in before:continue
+            v=_price(m.group(1))
             if v is not None:return v
         return None
     for scope,pats in ((cover,cover_patterns),(flat,cover_patterns[:2])):
         for p in pats:
-            m=re.search(p,scope,re.I)
-            if m:
-                exact=_money(m.group(1))
-                if exact is not None:break
+            exact=_price_match(p,scope)
+            if exact is not None:break
         if exact is not None:break
     if exact is None:exact=_loose_price(cover)
     sym=""
