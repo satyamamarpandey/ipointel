@@ -385,14 +385,23 @@ def reconcile_lifecycle(db:Session)->dict:
     db.commit()
     return stats
 
+def market_refresh_candidates(db:Session,limit:int):
+    """(rows with a symbol, India rows with only an ISIN) to fetch this pass.
+    Listed rows that have never had a performance snapshot come first, so a
+    bounded pass always extends coverage instead of re-fetching the same
+    recently-updated rows forever; among equals, most recently updated first."""
+    snapped=select(PerformanceSnapshot.ipo_id).distinct()
+    ipos=db.scalars(select(IPO).where(IPO.status=="Listed",IPO.symbol!="").order_by(IPO.id.in_(snapped),IPO.updated_at.desc()).limit(limit)).all()
+    unresolved=db.scalars(select(IPO).where(IPO.status=="Listed",IPO.symbol=="",IPO.isin!="",IPO.country=="India").order_by(IPO.id.in_(snapped),IPO.updated_at.desc()).limit(max(0,limit-len(ipos))+limit//2)).all()
+    return ipos,unresolved
+
 def refresh_market_performance(db:Session,limit=40):
     s=get_settings()
     if not s.allow_secondary_market_data:return 0
     # Rows with a symbol first (cheap: one chart request each), then rows that
     # only carry an ISIN, which need a symbol lookup before any price history
     # can be fetched. Both bounded by `limit` per pass.
-    ipos=db.scalars(select(IPO).where(IPO.status=="Listed",IPO.symbol!="").order_by(IPO.updated_at.desc()).limit(limit)).all()
-    unresolved=db.scalars(select(IPO).where(IPO.status=="Listed",IPO.symbol=="",IPO.isin!="",IPO.country=="India").order_by(IPO.updated_at.desc()).limit(max(0,limit-len(ipos))+limit//2)).all()
+    ipos,unresolved=market_refresh_candidates(db,limit)
     n=0
     bench_cache:dict[str,dict]={}
     def bench_return(country,listing_dt,window_days):

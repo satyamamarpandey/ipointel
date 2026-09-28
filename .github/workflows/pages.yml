@@ -88,6 +88,10 @@ jobs:
         env:
           DATABASE_URL: sqlite:///./data/ipo.db
           FULL_REFRESH: ${{ steps.scope.outputs.full }}
+          # A manual backfill dispatch adds hundreds of listed rows at once; let
+          # that same run fetch more post-listing price histories than the daily
+          # cron does (Yahoo is a secondary source, so this stays bounded).
+          MARKET_REFRESH_LIMIT: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.backfill_us_days != '' && github.event.inputs.backfill_us_days != '0') && '500' || '150' }}
         run: python scripts/refresh_data.py
 
       - name: Backfill historical US priced IPOs (SEC 424B4) - manual dispatch only, non-fatal

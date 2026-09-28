@@ -355,3 +355,20 @@ def test_ingest_sec_priced_stays_ok_when_index_files_are_not_published(db, monke
     run = pipeline.ingest_sec_priced(db, lookback_days=3)
     assert run.status == "ok" and run.error == ""
     assert run.metadata_json["index_not_published"]  # the skipped days are recorded, not hidden
+
+
+def test_market_refresh_prioritises_rows_without_any_snapshot(db):
+    from app.models import PerformanceSnapshot
+    from app.services.pipeline import market_refresh_candidates
+    fresh = IPO(external_key="US:mrc1", company="Never Fetched Corp", country="United States", status="Listed", symbol="NVRF",
+                updated_at=datetime(2020, 1, 1, tzinfo=timezone.utc))
+    stale = IPO(external_key="US:mrc2", company="Already Snapped Inc", country="United States", status="Listed", symbol="SNAP",
+                updated_at=datetime(2026, 9, 28, tzinfo=timezone.utc))
+    db.add_all([fresh, stale]); db.flush()
+    db.add(PerformanceSnapshot(ipo_id=stale.id, as_of_date="2026-09-27", close_price=10.0, source_name="t", source_url="u"))
+    db.commit()
+    ipos, _ = market_refresh_candidates(db, limit=1)
+    assert [i.external_key for i in ipos] == ["US:mrc1"]  # snapshot-less row wins despite being older
+    ipos, _ = market_refresh_candidates(db, limit=500)
+    keys = [i.external_key for i in ipos]
+    assert keys.index("US:mrc1") < keys.index("US:mrc2")
