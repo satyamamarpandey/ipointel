@@ -28,7 +28,7 @@ def test_repair_reclassifies_follow_ons_and_fills_missing_fields(db, monkeypatch
     assert a.status == "Listed" and a.symbol == "BKFL" and a.final_price == 12.0
     assert sec.CLASSIFIED_MARKER in a.data_flags and REPARSED_FLAG in a.data_flags
     assert b.status == "Not IPO" and NON_IPO_FLAG in b.data_flags
-    assert run.metadata_json == {"checked": 2, "reclassified_not_ipo": 1, "fields_filled": 2, "inconclusive": 0}
+    assert run.metadata_json == {"checked": 2, "reclassified_not_ipo": 1, "fields_filled": 2, "inconclusive": 0, "rechecked": 0, "restored_listed": 0}
 
     # Idempotent: a second pass has nothing left to read.
     calls: list[str] = []
@@ -77,3 +77,44 @@ def test_unknown_classification_keeps_the_row_and_is_flagged(db, monkeypatch):
     db.refresh(row)
     assert row.status == "Listed" and UNKNOWN_FLAG in row.data_flags and sec.CLASSIFIED_MARKER not in row.data_flags
     assert run.metadata_json["inconclusive"] == 1
+
+
+def test_recheck_restores_rows_wrongly_moved_to_not_ipo(db, monkeypatch):
+    from scripts.backfill_us_priced import recheck_not_ipo_rows, RECHECKED_FLAG
+    spac = IPO(external_key="US:9100005", company="Restored SPAC", country="United States", status="Not IPO", symbol="",
+               final_price=None, filing_url="https://www.sec.gov/Archives/edgar/data/9100005/e.txt", data_flags=[NON_IPO_FLAG])
+    real_follow_on = IPO(external_key="US:9100006", company="Still Follow-on", country="United States", status="Not IPO", symbol="",
+                         final_price=None, filing_url="https://www.sec.gov/Archives/edgar/data/9100006/f.txt", data_flags=[NON_IPO_FLAG])
+    db.add_all([spac, real_follow_on])
+    db.commit()
+    texts = {"9100005": IPO_TEXT, "9100006": FOLLOW_ON_TEXT}
+    monkeypatch.setattr(sec, "filing_head", lambda url, ua, n=0: (next(v for k, v in texts.items() if k in url), False))
+    stats = recheck_not_ipo_rows(db, limit=50, max_minutes=5)
+    db.refresh(spac)
+    db.refresh(real_follow_on)
+    assert stats == {"rechecked": 2, "restored_listed": 1}
+    assert spac.status == "Listed" and spac.symbol == "BKFL" and NON_IPO_FLAG not in spac.data_flags and RECHECKED_FLAG in spac.data_flags
+    assert real_follow_on.status == "Not IPO" and RECHECKED_FLAG in real_follow_on.data_flags
+    assert recheck_not_ipo_rows(db, limit=50, max_minutes=5) == {"rechecked": 0, "restored_listed": 0}
+
+
+def test_repair_corrects_a_price_stored_by_the_older_parser(db, monkeypatch):
+    from scripts.backfill_us_priced import PRICE_V2_FLAG, REPARSED_FLAG
+    spac = IPO(external_key="US:9100007", company="Mispriced SPAC", country="United States", status="Listed", symbol="MSPCU",
+               final_price=0.2, filing_url="https://www.sec.gov/Archives/edgar/data/9100007/g.txt",
+               data_flags=[sec.CLASSIFIED_MARKER, REPARSED_FLAG])
+    db.add(spac)
+    db.commit()
+    text = ("This is an initial public offering of our securities. Each unit has an offering price of $10.00. Our units have been "
+            "approved for listing on Nasdaq under the symbol MSPCU. Price to Public Underwriting Discount Proceeds to us Per Unit $ 10.00 "
+            "$ 0.55 $ 9.45. Our sponsor purchased private placement warrants at a price of $0.20 per warrant.")
+    monkeypatch.setattr(sec, "filing_head", lambda url, ua, n=0: (text, False))
+    run = repair_existing_us_listed(db, limit=50, max_minutes=5)
+    db.refresh(spac)
+    assert spac.final_price == 10.0 and spac.symbol == "MSPCU" and PRICE_V2_FLAG in spac.data_flags
+    assert run.metadata_json["fields_filled"] == 1
+    # verified rows are not read again
+    calls: list[str] = []
+    monkeypatch.setattr(sec, "filing_head", lambda url, ua, n=0: (calls.append(url) or text, False))
+    repair_existing_us_listed(db, limit=50, max_minutes=5)
+    assert calls == []

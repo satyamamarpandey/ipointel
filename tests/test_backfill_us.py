@@ -97,3 +97,35 @@ def test_follow_on_marker_beats_a_warrant_no_market_sentence():
     assert sec.classify_prospectus(blue_star) == "follow_on"
     assert sec.parse_priced_ipo(blue_star) is None
     assert sec.classify_prospectus("This is our initial public offering. There is no public market for our common stock warrants.") == "ipo"
+
+
+def test_follow_on_markers_only_count_on_the_cover_page():
+    spac = ("This is an initial public offering of our securities. Each unit has an offering price of $10.00. Our units have been "
+            "approved for listing on Nasdaq under the symbol SPACU. Price to public $10.00 Underwriting discounts and commissions $0.55. "
+            + "risk factors " * 400 +
+            "Our sponsor is an affiliate of BigCo, whose common stock is listed on the New York Stock Exchange under the symbol BIG; "
+            "the last reported sale price of BigCo common stock was $45.10.")
+    assert sec.classify_prospectus(spac) == "ipo"
+    assert sec.parse_priced_ipo(spac)["symbol"] == "SPACU"
+
+
+def test_backfill_resume_keeps_the_original_target_end(db, monkeypatch):
+    monkeypatch.setattr(sec, "master_index_if_published", lambda day, ua: ({"424B4": [], "RW": []}, "u"))
+    first = backfill(db, days=2, max_minutes=5, start=date(2022, 1, 3), end=date(2022, 1, 31))
+    assert first.metadata_json["target_end"] == "2022-01-31" and first.metadata_json["through"] == "2022-01-04"
+    # A resumed run without --end must not shrink the target because of rows written meanwhile.
+    db.add(IPO(external_key="US:early", company="Early Backfilled Corp", country="United States", status="Listed", listing_date="20220103"))
+    db.commit()
+    second = backfill(db, days=2, max_minutes=5)
+    assert second.metadata_json["from"] == "2022-01-05" and second.metadata_json["target_end"] == "2022-01-31"
+    assert second.metadata_json["through"] == "2022-01-06"
+
+
+def test_backfilled_rows_are_marked_classified_so_repair_skips_them(db, monkeypatch):
+    from scripts.backfill_us_priced import repair_candidates, REPARSED_FLAG
+    monkeypatch.setattr(sec, "master_index_if_published", lambda day, ua: _index(day, [("9000010", "Marked Co")]))
+    monkeypatch.setattr(sec, "filing_head", lambda url, ua, n=0: (IPO_TEXT, False))
+    backfill(db, days=1, max_minutes=5, start=date(2024, 5, 6), end=date(2024, 5, 6))
+    row = db.scalar(select(IPO).where(IPO.external_key == "US:9000010"))
+    assert sec.CLASSIFIED_MARKER in row.data_flags and REPARSED_FLAG in row.data_flags
+    assert row not in repair_candidates(db, 1000)

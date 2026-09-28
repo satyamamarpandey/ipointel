@@ -336,18 +336,29 @@ _IPO_SUPPORT_PATTERNS=(
 )
 _PUBLIC_OFFERING_COVER=r"this is (?:a|an) (?:firm[- ]commitment |underwritten |best[- ]efforts |self[- ]underwritten )?(?:initial )?public offering of"
 
+_COVER_FALLBACK_CHARS=30_000
+
+def cover_region(flat_text:str)->str:
+    """The prospectus cover page: everything up to (and just past) the Item 501
+    price table. Follow-on and IPO statements are judged there only; a SPAC or
+    carve-out prospectus routinely says deeper in the summary that some *other*
+    company "is listed on Nasdaq under the symbol ...", which must not count."""
+    m=_COVER_DONE.search(flat_text)
+    return flat_text[:m.end()+1500] if m else flat_text[:_COVER_FALLBACK_CHARS]
+
 def classify_prospectus(flat_text:str)->str:
     """'ipo' | 'follow_on' | 'unknown' for a 424B4 prospectus (flattened text).
 
     'unknown' is a real outcome: the caller must not store the filing as an
     IPO, nor reclassify an existing row on evidence it did not read."""
     low=flat_text.lower()
+    cover=cover_region(low)
     # An IPO prospectus cannot quote a last sale price of the security being
-    # offered, so a follow-on marker settles it before any cover phrase.
-    if any(re.search(p,low) for p in _FOLLOW_ON_PATTERNS):return "follow_on"
-    if any(re.search(p,low) for p in _IPO_COVER_PATTERNS):return "ipo"
+    # offered, so a follow-on marker on the cover settles it before any cover phrase.
+    if any(re.search(p,cover) for p in _FOLLOW_ON_PATTERNS):return "follow_on"
+    if any(re.search(p,cover) for p in _IPO_COVER_PATTERNS):return "ipo"
     support=any(re.search(p,low) for p in _IPO_SUPPORT_PATTERNS)
-    if support and ("initial public offering" in low or re.search(_PUBLIC_OFFERING_COVER,low)):return "ipo"
+    if support and ("initial public offering" in cover or re.search(_PUBLIC_OFFERING_COVER,cover)):return "ipo"
     return "unknown"
 
 def is_ipo_prospectus(flat_text:str)->bool:
@@ -357,17 +368,40 @@ def parse_priced_ipo(text:str):
     flat=flatten_filing_text(text)
     if not is_ipo_prospectus(flat):return None
     lo,hi=parse_price_range(flat)
-    # A 424B4 often states the exact public offering price more clearly than an S-1 range.
+    # A 424B4 states the exact public offering price on its cover page. Look
+    # there first (the Item 501 table and the "offering price is $X" sentence);
+    # only then fall back to the whole text, and never to the loose "at a
+    # price of $X per unit" wording outside the cover, which also describes
+    # private-placement warrants sold to a SPAC sponsor for $0.20 or $1.00.
+    cover=cover_region(flat)
     exact=None
-    for p in [rf"initial public offering price[^$]{{0,100}}\$\s*({_MONEY})",
-              rf"public offering price[^$]{{0,80}}\$\s*({_MONEY})\s+per (?:share|unit|ads)",
-              rf"each unit has an offering price of \$\s*({_MONEY})",
-              rf"offering price of \$\s*({_MONEY}) per unit",
-              rf"(?:offering price|at a price) of \$\s*({_MONEY}) per (?:class [ab] )?(?:ordinary |common |depositary )?(?:share|unit|ads)"]:
-        m=re.search(p,flat,re.I)
-        if m:
-            exact=_money(m.group(1))
-            if exact is not None: break
+    cover_patterns=[rf"initial public offering price[^$]{{0,100}}\$\s*({_MONEY})",
+                    rf"public offering price[^$]{{0,80}}\$\s*({_MONEY})\s+per (?:share|unit|ads)",
+                    rf"each unit has an offering price of \$\s*({_MONEY})",
+                    rf"offering price of \$\s*({_MONEY}) per unit",
+                    # Item 501 table cells: "Public offering price $ 10.00", "Price to public $ 6.25", "Offering price per share $1.00"
+                    rf"(?:public )?offering price(?: per (?:share|unit|ads))?\s*(?:\(\d\))?\s*\$\s*({_MONEY})",
+                    rf"price to (?:the )?public\s*(?:per (?:share|unit|ads)\s*)?\$?\s*({_MONEY})",
+                    # table laid out header row then value row: "Price to Public ... Per Unit $ 10.00 $ 0.55"
+                    rf"price to (?:the )?public.{{0,160}}?per (?:share|unit|ads)\s*\$\s*({_MONEY})"]
+    # Loose wording only as a last resort, and never a warrant's exercise price
+    # ("each warrant is exercisable ... at a price of $11.50 per share").
+    _LOOSE=rf"(?:offering price|at a price) of \$\s*({_MONEY}) per (?:class [ab] )?(?:ordinary |common |depositary )?(?:share|unit|ads)"
+    def _loose_price(scope:str):
+        for m in re.finditer(_LOOSE,scope,re.I):
+            before=scope[max(0,m.start()-160):m.start()].lower()
+            if "warrant" in before or "exercis" in before or "option" in before:continue
+            v=_money(m.group(1))
+            if v is not None:return v
+        return None
+    for scope,pats in ((cover,cover_patterns),(flat,cover_patterns[:2])):
+        for p in pats:
+            m=re.search(p,scope,re.I)
+            if m:
+                exact=_money(m.group(1))
+                if exact is not None:break
+        if exact is not None:break
+    if exact is None:exact=_loose_price(cover)
     sym=""
     # The prefix is case-insensitive, the symbol itself is not: "under the
     # symbol" followed by lowercase prose ("our") is not a ticker.

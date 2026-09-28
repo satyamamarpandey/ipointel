@@ -52,6 +52,8 @@ WINDOW_YEARS = 5
 HEAD_BYTES = 1_500_000
 INCONCLUSIVE_FLAG = f"424b4_reparsed: inconclusive (cover page not within the first {HEAD_BYTES // 1000} KB)"
 UNKNOWN_FLAG = "424b4_reparsed: inconclusive (prospectus states neither an IPO nor a prior listing)"
+RECHECKED_FLAG = "424b4_reparsed: not-ipo verdict re-checked against the cover page"
+PRICE_V2_FLAG = "424b4_reparsed: price and symbol verified against the cover page (v2)"
 
 
 def window_start(today: date, years: int = WINDOW_YEARS) -> date:
@@ -61,11 +63,23 @@ def window_start(today: date, years: int = WINDOW_YEARS) -> date:
         return today.replace(year=today.year - years, day=28)
 
 
+def previous_runs(db: Session) -> list[IngestionRun]:
+    return db.scalars(select(IngestionRun).where(IngestionRun.source == SOURCE).order_by(IngestionRun.id.desc())).all()
+
+
 def last_completed_day(db: Session) -> date | None:
     """Resume point: the newest 'through' date any previous backfill recorded."""
-    runs = db.scalars(select(IngestionRun).where(IngestionRun.source == SOURCE).order_by(IngestionRun.id.desc())).all()
-    days = [r.metadata_json.get("through") for r in runs if r.metadata_json and r.metadata_json.get("through")]
+    days = [r.metadata_json.get("through") for r in previous_runs(db) if r.metadata_json and r.metadata_json.get("through")]
     return max(date.fromisoformat(d) for d in days) if days else None
+
+
+def recorded_target_end(db: Session) -> date | None:
+    """The end day fixed by the first backfill run. Recomputing it later from
+    the database would see the backfill's own (older) rows and stop early."""
+    for r in previous_runs(db):
+        if r.metadata_json and r.metadata_json.get("target_end"):
+            return date.fromisoformat(r.metadata_json["target_end"])
+    return None
 
 
 def earliest_live_listing(db: Session) -> date | None:
@@ -103,7 +117,7 @@ def backfill(db: Session, *, days: int, max_minutes: float, start: date | None =
     today = today or datetime.now(timezone.utc).date()
     resume = last_completed_day(db)
     first = start or ((resume + timedelta(days=1)) if resume else window_start(today))
-    last = end or (earliest_live_listing(db) or today) - timedelta(days=1)
+    last = end or recorded_target_end(db) or (earliest_live_listing(db) or today) - timedelta(days=1)
     run = IngestionRun(source=SOURCE, status="running", metadata_json={"from": first.isoformat()})
     db.add(run)
     db.commit()
@@ -151,6 +165,9 @@ def backfill(db: Session, *, days: int, max_minutes: float, start: date | None =
                    "sector": "Unknown", "status": "Listed", "currency": "USD", "listing_date": meta.get("filing_date", "")}
             if upsert_ipo(db, row, "SEC 424B4", meta["filing_url"], 1):
                 added += 1
+            stored = db.scalar(select(IPO).where(IPO.external_key == f"US:{cik.lower()}"))
+            if stored is not None:
+                stored.data_flags = [f for f in (stored.data_flags or []) if f not in (sec.CLASSIFIED_MARKER, REPARSED_FLAG, PRICE_V2_FLAG)] + [sec.CLASSIFIED_MARKER, REPARSED_FLAG, PRICE_V2_FLAG]
             ciks.add(cik)
         through = day
         processed += 1
@@ -181,14 +198,57 @@ def repair_candidates(db: Session, limit: int) -> list[IPO]:
     out: list[IPO] = []
     for ipo in rows:
         flags = ipo.data_flags or []
-        if REPARSED_FLAG in flags or INCONCLUSIVE_FLAG in flags or UNKNOWN_FLAG in flags:
-            continue  # already re-read once; anything still missing is absent from the cover page
-        if sec.CLASSIFIED_MARKER in flags and ipo.symbol and ipo.final_price is not None:
-            continue
+        if PRICE_V2_FLAG in flags or INCONCLUSIVE_FLAG in flags or UNKNOWN_FLAG in flags:
+            continue  # already verified with the cover-page extractor, or deliberately left alone
         out.append(ipo)
         if len(out) >= limit:
             break
     return out
+
+
+def recheck_candidates(db: Session, limit: int) -> list[IPO]:
+    """US rows this tool moved to 'Not IPO' that have not been re-judged with
+    the cover-page-only classifier."""
+    rows = db.scalars(select(IPO).where(IPO.country == "United States", IPO.status == "Not IPO",
+                                        IPO.filing_url.like("https://www.sec.gov/%")).order_by(IPO.id.desc())).all()
+    out = [r for r in rows if NON_IPO_FLAG in (r.data_flags or []) and RECHECKED_FLAG not in (r.data_flags or [])]
+    return out[:limit]
+
+
+def recheck_not_ipo_rows(db: Session, *, limit: int, max_minutes: float, log=print) -> dict:
+    """Re-read the cover page of rows previously reclassified as Not IPO. A row
+    whose cover states an IPO is restored to Listed (with provenance) and gets
+    its ticker/price filled; every re-checked row is flagged so this runs once."""
+    s = get_settings()
+    deadline = time.monotonic() + max_minutes * 60
+    checked = restored = 0
+    for ipo in recheck_candidates(db, limit):
+        if time.monotonic() > deadline:
+            break
+        try:
+            text, truncated = sec.filing_head(ipo.filing_url, s.sec_user_agent, HEAD_BYTES)
+        except Exception:
+            continue
+        flat = sec.flatten_filing_text(text)
+        checked += 1
+        flags = [f for f in (ipo.data_flags or []) if f != RECHECKED_FLAG] + [RECHECKED_FLAG]
+        if sec.classify_prospectus(flat) == "ipo":
+            ipo.status = "Listed"
+            flags = [f for f in flags if f != NON_IPO_FLAG]
+            add_provenance(db, ipo, "status", "Listed", "SEC 424B4", ipo.filing_url, 1)
+            parsed = sec.parse_priced_ipo(flat) or {}
+            if parsed.get("symbol"):
+                ipo.symbol = parsed["symbol"]
+            if parsed.get("final_price") is not None:
+                ipo.final_price = parsed["final_price"]
+            flags = [f for f in flags if f != PRICE_V2_FLAG] + [PRICE_V2_FLAG]
+            restored += 1
+        ipo.data_flags = flags
+        ipo.updated_at = datetime.now(timezone.utc)
+        db.commit()
+    if checked:
+        log(f"  recheck: {checked} Not IPO rows re-read, {restored} restored to Listed")
+    return {"rechecked": checked, "restored_listed": restored}
 
 
 def repair_existing_us_listed(db: Session, *, limit: int, max_minutes: float, log=print) -> IngestionRun:
@@ -213,7 +273,7 @@ def repair_existing_us_listed(db: Session, *, limit: int, max_minutes: float, lo
             warnings.append(f"{ipo.company}: {type(e).__name__}")
             continue
         checked += 1
-        flags = [f for f in (ipo.data_flags or []) if f not in (sec.CLASSIFIED_MARKER, REPARSED_FLAG)]
+        flags = [f for f in (ipo.data_flags or []) if f not in (sec.CLASSIFIED_MARKER, REPARSED_FLAG, PRICE_V2_FLAG)]
         if truncated and "initial public offering" not in flat.lower():
             # The cover page was not reached; the row keeps its status. Never
             # reclassify on evidence we did not actually read.
@@ -227,20 +287,23 @@ def repair_existing_us_listed(db: Session, *, limit: int, max_minutes: float, lo
             inconclusive += 1
             db.commit()
             continue
-        flags += [sec.CLASSIFIED_MARKER, REPARSED_FLAG]
+        flags += [sec.CLASSIFIED_MARKER, REPARSED_FLAG, PRICE_V2_FLAG]
         if verdict == "follow_on":
             ipo.status = "Not IPO"
             if NON_IPO_FLAG not in flags:
                 flags.append(NON_IPO_FLAG)
+            flags.append(RECHECKED_FLAG)  # judged with the cover-page classifier already
             add_provenance(db, ipo, "status", "Not IPO", "SEC 424B4", ipo.filing_url, 1)
             reclassified += 1
         else:
+            # The cover page is the primary source for both fields: fill blanks
+            # and correct values an earlier, looser parser stored.
             parsed = sec.parse_priced_ipo(flat) or {}
-            if not ipo.symbol and parsed.get("symbol"):
+            if parsed.get("symbol") and ipo.symbol != parsed["symbol"]:
                 ipo.symbol = parsed["symbol"]
                 add_provenance(db, ipo, "symbol", ipo.symbol, "SEC 424B4", ipo.filing_url, 1)
                 filled += 1
-            if ipo.final_price is None and parsed.get("final_price") is not None:
+            if parsed.get("final_price") is not None and ipo.final_price != parsed["final_price"]:
                 ipo.final_price = parsed["final_price"]
                 add_provenance(db, ipo, "final_price", ipo.final_price, "SEC 424B4", ipo.filing_url, 1)
                 filled += 1
@@ -255,7 +318,9 @@ def repair_existing_us_listed(db: Session, *, limit: int, max_minutes: float, lo
     run.rows_seen = checked
     run.rows_changed = reclassified + filled
     run.finished_at = datetime.now(timezone.utc)
-    run.metadata_json = {"checked": checked, "reclassified_not_ipo": reclassified, "fields_filled": filled, "inconclusive": inconclusive}
+    meta = {"checked": checked, "reclassified_not_ipo": reclassified, "fields_filled": filled, "inconclusive": inconclusive}
+    meta.update(recheck_not_ipo_rows(db, limit=limit, max_minutes=max(0.0, (deadline - time.monotonic()) / 60), log=log))
+    run.metadata_json = meta
     db.commit()
     return run
 
