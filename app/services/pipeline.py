@@ -236,13 +236,14 @@ def ingest_sec(db:Session):
 
 def ingest_sec_priced(db:Session, lookback_days:int=5):
     import time as _time
-    s=get_settings();run=IngestionRun(source="SEC Priced IPOs",status="running");db.add(run);db.commit();seen=changed=0;warnings=[];withdrawn=0
+    s=get_settings();run=IngestionRun(source="SEC Priced IPOs",status="running");db.add(run);db.commit();seen=changed=0;warnings=[];withdrawn=0;unpublished=[]
     try:
         today=datetime.now(timezone.utc).date()
         for i in range(lookback_days):
             day=today-timedelta(days=i)
             if day.weekday()>=5:continue  # Sat/Sun: SEC never publishes a daily-index file - not a fetch failure, don't warn or request
-            try: idx,index_url=sec.master_index_for_date(day,s.sec_user_agent)
+            try: idx,index_url=sec.master_index_if_published(day,s.sec_user_agent)
+            except sec.DailyIndexUnavailable: unpublished.append(str(day));continue  # not yet published / holiday: not a source failure
             except Exception as e: warnings.append(f"{day}: {type(e).__name__}");continue
             # Registration withdrawal requests (form RW). Matched by CIK to a
             # Filed row we already track; the row becomes Withdrawn and is
@@ -262,7 +263,7 @@ def ingest_sec_priced(db:Session, lookback_days:int=5):
                     if upsert_ipo(db,row,"SEC 424B4",meta["filing_url"],1):changed+=1
                     _time.sleep(.12)
                 except Exception as e: warnings.append(f"{meta.get('company','?')}: {type(e).__name__}")
-        return _finish(db,run,seen,changed,warnings,{"withdrawn":withdrawn})
+        return _finish(db,run,seen,changed,warnings,{"withdrawn":withdrawn,"index_not_published":unpublished})
     except Exception as e:return _fail(db,run,e)
 
 def ingest_secondary_enrichment(db:Session):

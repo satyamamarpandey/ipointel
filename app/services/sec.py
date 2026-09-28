@@ -77,18 +77,28 @@ def fetch_recent_ipos(user_agent:str, count=100):
             except Exception as e: warnings.append(f"SEC {form}: {type(e).__name__}: {e}")
     return rows,warnings
 
+# A dollar amount as filings print it: "18.00", "1,250.50", "4". The old
+# "[0-9.]+" also swallowed the sentence's full stop ("$1.00." -> "1.00."),
+# which made float() raise and flagged the whole source run as partial.
+_MONEY=r"[0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?"
+
+def _money(raw:str):
+    try: return float(raw.replace(",",""))
+    except (TypeError,ValueError): return None
+
 def parse_price_range(text:str):
     patterns=[
-      r"initial public offering price(?: is| will be)? expected to be between\s*\$([0-9.]+)\s+and\s+\$([0-9.]+)",
-      r"price to the public\s*\$?([0-9.]+)",
-      r"offering price between\s*\$([0-9.]+)\s+and\s+\$([0-9.]+)",
+      rf"initial public offering price(?: is| will be)? expected to be between\s*\$({_MONEY})\s+and\s+\$({_MONEY})",
+      rf"price to the public\s*\$?({_MONEY})",
+      rf"offering price between\s*\$({_MONEY})\s+and\s+\$({_MONEY})",
     ]
     low=high=None
     flat=re.sub(r"\s+"," ",text)
     for p in patterns:
         m=re.search(p,flat,re.I)
         if m:
-            low=float(m.group(1)); high=float(m.group(2)) if m.lastindex and m.lastindex>1 else low; break
+            low=_money(m.group(1)); high=_money(m.group(2)) if m.lastindex and m.lastindex>1 else low
+            if low is not None: break
     return low,high
 
 def filing_text(url:str,user_agent:str):
@@ -188,6 +198,19 @@ def master_index_for_date(day,user_agent:str):
     with _client(user_agent) as c:
         r=_get(c,url);return parse_master_index_forms(r.text),url
 
+class DailyIndexUnavailable(Exception):
+    """EDGAR has no daily-index file for that date (not yet published, market
+    holiday). Distinct from a real fetch failure so callers can skip quietly."""
+
+def master_index_if_published(day,user_agent:str):
+    """master_index_for_date(), but a 403/404 for the day's file means the file
+    does not exist (EDGAR answers 403 for missing index files) and raises
+    DailyIndexUnavailable instead of an HTTP error."""
+    try: return master_index_for_date(day,user_agent)
+    except httpx.HTTPStatusError as e:
+        if e.response is not None and e.response.status_code in (403,404): raise DailyIndexUnavailable(str(day)) from e
+        raise
+
 def parse_priced_ipo(text:str):
     flat=re.sub(r"\s+"," ",text)
     lowtxt=flat.lower()
@@ -195,9 +218,11 @@ def parse_priced_ipo(text:str):
     lo,hi=parse_price_range(flat)
     # A 424B4 often states the exact public offering price more clearly than an S-1 range.
     exact=None
-    for p in [r"initial public offering price[^$]{0,100}\$([0-9.]+)",r"public offering price[^$]{0,80}\$([0-9.]+)\s+per share"]:
+    for p in [rf"initial public offering price[^$]{{0,100}}\$({_MONEY})",rf"public offering price[^$]{{0,80}}\$({_MONEY})\s+per share"]:
         m=re.search(p,flat,re.I)
-        if m: exact=float(m.group(1));break
+        if m:
+            exact=_money(m.group(1))
+            if exact is not None: break
     sym=""
     for p in [r"under the symbol [\"“']?([A-Z]{1,6})",r"trading symbol\s*[:\-]?\s*([A-Z]{1,6})"]:
         m=re.search(p,flat,re.I)

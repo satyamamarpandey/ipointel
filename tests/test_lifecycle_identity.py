@@ -11,6 +11,7 @@ import json
 from datetime import datetime, timezone, timedelta
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from sqlalchemy import select
 
@@ -306,3 +307,37 @@ def test_clean_company_name_strips_trailing_edgar_cik_artifact():
     assert clean_company_name("ARES STRATEGIC MINING INC. (0001804792) (Filer)", "United States") == "ARES STRATEGIC MINING INC."
     assert clean_company_name("1 - ACME, INC. (0001234567) (Filer)", "United States") == "ACME, INC."
     assert clean_company_name("Some India Co (1234567) (Filer)", "India") == "Some India Co (1234567) (Filer)"  # SEC-only rule
+
+
+# ------------------------------------------------ SEC priced-IPO robustness --
+
+def test_priced_ipo_price_regex_does_not_swallow_sentence_punctuation():
+    txt = ("This prospectus relates to our initial public offering. The initial public offering price is $1.00. "
+           "Our shares will trade under the symbol RUIH.")
+    parsed = sec.parse_priced_ipo(txt)
+    assert parsed["final_price"] == 1.0 and parsed["symbol"] == "RUIH"
+    assert sec.parse_priced_ipo("initial public offering price of $1,250.50 per share")["final_price"] == 1250.5
+    assert sec.parse_price_range("offering price between $4 and $6 per share") == (4.0, 6.0)
+
+
+def _http_status_error(code: int) -> httpx.HTTPStatusError:
+    req = httpx.Request("GET", "https://www.sec.gov/Archives/edgar/daily-index/2026/QTR3/master.20260928.idx")
+    return httpx.HTTPStatusError("boom", request=req, response=httpx.Response(code, request=req))
+
+
+def test_missing_daily_index_is_not_a_fetch_failure(monkeypatch):
+    from datetime import date
+    monkeypatch.setattr(sec, "master_index_for_date", lambda day, ua: (_ for _ in ()).throw(_http_status_error(403)))
+    with pytest.raises(sec.DailyIndexUnavailable):
+        sec.master_index_if_published(date(2026, 9, 28), "ua")
+    monkeypatch.setattr(sec, "master_index_for_date", lambda day, ua: (_ for _ in ()).throw(_http_status_error(503)))
+    with pytest.raises(httpx.HTTPStatusError):
+        sec.master_index_if_published(date(2026, 9, 28), "ua")
+
+
+def test_ingest_sec_priced_stays_ok_when_index_files_are_not_published(db, monkeypatch):
+    from app.services import pipeline
+    monkeypatch.setattr(sec, "master_index_if_published", lambda day, ua: (_ for _ in ()).throw(sec.DailyIndexUnavailable(str(day))))
+    run = pipeline.ingest_sec_priced(db, lookback_days=3)
+    assert run.status == "ok" and run.error == ""
+    assert run.metadata_json["index_not_published"]  # the skipped days are recorded, not hidden
