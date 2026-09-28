@@ -126,6 +126,38 @@ with an unparseable/missing `listing_date` is excluded from history and
 counted as `*_excluded_unparseable_date` in the manifest - never silently
 dropped, and never defaulted to 0/today.
 
+### Filling the US side of the window (SEC 424B4 backfill)
+
+Live ingestion (`ingest_sec_priced`) only looks a few days back, so US
+"Listed" history would otherwise start on the day production ingestion
+began. `scripts/backfill_us_priced.py` walks EDGAR's daily master index
+oldest-first over the never-scanned part of the window and stores every
+424B4 that is an IPO prospectus through the same `upsert_ipo()` path.
+
+- **Bounded and resumable.** Each run scans `--days` business days or
+  `--max-minutes`, commits per day, and records the last completed day on its
+  `IngestionRun` row (`metadata_json.through`); the next run resumes there.
+  Trigger it from the Actions UI: *Run workflow* with `backfill_us_days`
+  (for example `260`, about one year); repeat until the log says
+  `completed`. Scheduled runs never backfill.
+- **Head-only downloads.** Only the top of each submission is read
+  (`sec.filing_head`, stops after the cover page's price table, hard cap
+  1.5 MB) and filings whose CIK is already tracked are skipped, so a year of
+  filings is a few hundred MB, not tens of GB. Pacing/backoff is the same
+  `_get` contract the live ingestion uses.
+- **Three-way classification.** `sec.classify_prospectus()` returns `ipo`
+  (cover states "this is our initial public offering" / "no public market
+  for our shares", or an initial listing application plus the IPO dilution
+  statement), `follow_on` (Item 501(b)(4) last-reported-sale-price
+  language, "is listed on Nasdaq under the symbol"), or `unknown`. Only
+  `ipo` is ever stored. Uplistings from OTC are follow-ons, not IPOs.
+- **Repair of existing rows.** `--repair-existing` (always on for the
+  dispatch step) re-reads US Listed rows that were stored by the older,
+  looser filter: follow-ons become `Not IPO` with provenance, genuine IPOs
+  get a missing ticker/final price filled from the cover page, `unknown` or
+  cover-not-reached rows keep their status and are flagged so they are not
+  re-read. Nothing is deleted or merged.
+
 ## Waitlist on GitHub Pages
 
 `PUBLIC_WAITLIST_ENDPOINT` (a GitHub repository **variable**, not a secret -

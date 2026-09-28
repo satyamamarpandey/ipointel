@@ -316,19 +316,33 @@ def test_priced_ipo_price_regex_does_not_swallow_sentence_punctuation():
            "Our shares will trade under the symbol RUIH.")
     parsed = sec.parse_priced_ipo(txt)
     assert parsed["final_price"] == 1.0 and parsed["symbol"] == "RUIH"
-    assert sec.parse_priced_ipo("initial public offering price of $1,250.50 per share")["final_price"] == 1250.5
+    assert sec.parse_priced_ipo("This is our initial public offering. initial public offering price of $1,250.50 per share")["final_price"] == 1250.5
     assert sec.parse_price_range("offering price between $4 and $6 per share") == (4.0, 6.0)
 
 
-def _http_status_error(code: int) -> httpx.HTTPStatusError:
+def _http_status_error(code: int, body: str = "AccessDenied") -> httpx.HTTPStatusError:
     req = httpx.Request("GET", "https://www.sec.gov/Archives/edgar/daily-index/2026/QTR3/master.20260928.idx")
-    return httpx.HTTPStatusError("boom", request=req, response=httpx.Response(code, request=req))
+    return httpx.HTTPStatusError("boom", request=req, response=httpx.Response(code, request=req, text=body))
 
 
 def test_missing_daily_index_is_not_a_fetch_failure(monkeypatch):
     from datetime import date
+    calls: list[date] = []
+    # EDGAR's own directory listing says which days exist: a missing day is skipped without a request.
+    monkeypatch.setattr(sec, "daily_index_files", lambda y, q, ua: {"master.20260925.idx"})
+    monkeypatch.setattr(sec, "master_index_for_date", lambda day, ua: calls.append(day) or ({}, "u"))
+    with pytest.raises(sec.DailyIndexUnavailable):
+        sec.master_index_if_published(date(2026, 9, 28), "ua")
+    assert calls == []
+    assert sec.master_index_if_published(date(2026, 9, 25), "ua") == ({}, "u")
+
+    # Listing unavailable: fall back to the per-file signal. S3 AccessDenied = no file; rate-limit page = real error.
+    monkeypatch.setattr(sec, "daily_index_files", lambda y, q, ua: None)
     monkeypatch.setattr(sec, "master_index_for_date", lambda day, ua: (_ for _ in ()).throw(_http_status_error(403)))
     with pytest.raises(sec.DailyIndexUnavailable):
+        sec.master_index_if_published(date(2026, 9, 28), "ua")
+    monkeypatch.setattr(sec, "master_index_for_date", lambda day, ua: (_ for _ in ()).throw(_http_status_error(403, "<h1>Request Rate Threshold Exceeded</h1>")))
+    with pytest.raises(httpx.HTTPStatusError):
         sec.master_index_if_published(date(2026, 9, 28), "ua")
     monkeypatch.setattr(sec, "master_index_for_date", lambda day, ua: (_ for _ in ()).throw(_http_status_error(503)))
     with pytest.raises(httpx.HTTPStatusError):

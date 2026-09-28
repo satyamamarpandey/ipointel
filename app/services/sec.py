@@ -1,5 +1,5 @@
 from __future__ import annotations
-import re, time, xml.etree.ElementTree as ET
+import html, re, time, xml.etree.ElementTree as ET
 import httpx
 from .net_safety import validate_outbound_url
 
@@ -88,12 +88,12 @@ def _money(raw:str):
 
 def parse_price_range(text:str):
     patterns=[
-      rf"initial public offering price(?: is| will be)? expected to be between\s*\$({_MONEY})\s+and\s+\$({_MONEY})",
-      rf"price to the public\s*\$?({_MONEY})",
+      rf"initial public offering price(?: is| will be)? expected to be between\s*\$\s*({_MONEY})\s+and\s+\$\s*({_MONEY})",
+      rf"price to (?:the )?public\s*(?:per (?:share|unit|ads)\s*)?\$?\s*({_MONEY})",
       rf"offering price between\s*\$({_MONEY})\s+and\s+\$({_MONEY})",
     ]
     low=high=None
-    flat=re.sub(r"\s+"," ",text)
+    flat=flatten_filing_text(text)
     for p in patterns:
         m=re.search(p,flat,re.I)
         if m:
@@ -107,6 +107,65 @@ def filing_text(url:str,user_agent:str):
     validate_outbound_url(url,allowed_hosts=_ALLOWED_HOSTS)
     with _client(user_agent) as c:
         r=_get(c,url); return re.sub(r"<[^>]+>"," ",r.text)
+
+def _decode(raw:bytes)->str:
+    """EDGAR submissions are UTF-8 or Windows-1252 (smart quotes around ticker
+    symbols). Try strict UTF-8 first; a truncated multi-byte tail or cp1252
+    bytes fall back to cp1252, which never raises."""
+    try:return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        try:return raw[:-3].decode("utf-8")
+        except UnicodeDecodeError:return raw.decode("cp1252","replace")
+
+# Every prospectus cover page ends with the Item 501 price table ("Price to
+# public ... Underwriting discounts"). Once that has been read, the cover
+# statements (IPO or not, symbol, price) are in hand and downloading stops.
+_COVER_DONE = re.compile(r"price to (?:the )?public|underwriting discounts? and commissions|proceeds,? before expenses,? to", re.I)
+_CHECK_EVERY = 96 * 1024
+
+
+def _stream_head(c:httpx.Client,url:str,max_bytes:int,sleep=time.sleep)->tuple[str,bool]:
+    """Like _get, but reads at most max_bytes of the body (stopping earlier
+    once the prospectus cover page is in hand) and closes the connection.
+    Returns (text, truncated): truncated is True when the cap was hit before
+    the body ended, i.e. the cover page may lie beyond what was read."""
+    global _last_request_at
+    last_exc:Exception|None=None
+    for attempt in range(_MAX_ATTEMPTS):
+        wait=_MIN_INTERVAL_SECONDS-(time.monotonic()-_last_request_at)
+        if wait>0:sleep(wait)
+        try:
+            _last_request_at=time.monotonic()
+            with c.stream("GET",url) as r:
+                if r.status_code in _RETRY_STATUSES and attempt<_MAX_ATTEMPTS-1:
+                    sleep(_BACKOFF_BASE_SECONDS*(2**attempt));last_exc=httpx.HTTPStatusError(f"HTTP {r.status_code}",request=r.request,response=r);continue
+                r.raise_for_status()
+                buf=bytearray();next_check=_CHECK_EVERY;truncated=False
+                for chunk in r.iter_bytes():
+                    buf.extend(chunk)
+                    if len(buf)>=max_bytes:truncated=True;break
+                    if len(buf)>=next_check:
+                        next_check+=_CHECK_EVERY
+                        if _COVER_DONE.search(re.sub(r"<[^>]+>"," ",_decode(bytes(buf)))):break  # cover page read: not a truncation
+                return _decode(bytes(buf[:max_bytes])),truncated
+        except (httpx.TimeoutException,httpx.TransportError) as e:
+            last_exc=e
+            if attempt<_MAX_ATTEMPTS-1:sleep(_BACKOFF_BASE_SECONDS*(2**attempt))
+    assert last_exc is not None
+    raise last_exc
+
+def filing_head(url:str,user_agent:str,max_bytes:int=1_500_000)->tuple[str,bool]:
+    """(tag-stripped head of a filing, truncated?). Used by the historical
+    424B4 backfill/repair where downloading thousands of full submissions
+    would be wasteful for both sides; the cover page carries the price,
+    symbol and the IPO statement."""
+    validate_outbound_url(url,allowed_hosts=_ALLOWED_HOSTS)
+    with _client(user_agent) as c:
+        text,truncated=_stream_head(c,url,max_bytes)
+        return re.sub(r"<[^>]+>"," ",text),truncated
+
+def filing_text_head(url:str,user_agent:str,max_bytes:int=1_500_000)->str:
+    return filing_head(url,user_agent,max_bytes)[0]
 
 def fetch_companyfacts(cik:str,user_agent:str):
     with _client(user_agent) as c:
@@ -202,29 +261,117 @@ class DailyIndexUnavailable(Exception):
     """EDGAR has no daily-index file for that date (not yet published, market
     holiday). Distinct from a real fetch failure so callers can skip quietly."""
 
+_quarter_listing_cache:dict[tuple[int,int],set[str]]={}
+
+def daily_index_files(year:int,quarter:int,user_agent:str)->set[str]|None:
+    """Names of the master.*.idx files EDGAR lists for a quarter (its own
+    directory index.json), cached per process. None when the listing itself
+    could not be fetched, so callers fall back to per-file probing."""
+    key=(year,quarter)
+    if key in _quarter_listing_cache:return _quarter_listing_cache[key]
+    try:
+        with _client(user_agent) as c:
+            r=_get(c,f"https://www.sec.gov/Archives/edgar/daily-index/{year}/QTR{quarter}/index.json")
+        names={i.get("name","") for i in r.json().get("directory",{}).get("item",[]) if str(i.get("name","")).startswith("master.")}
+    except Exception:
+        return None
+    _quarter_listing_cache[key]=names
+    return names
+
 def master_index_if_published(day,user_agent:str):
-    """master_index_for_date(), but a 403/404 for the day's file means the file
-    does not exist (EDGAR answers 403 for missing index files) and raises
-    DailyIndexUnavailable instead of an HTTP error."""
+    """master_index_for_date(), but a day EDGAR has no index file for (not yet
+    published, market holiday) raises DailyIndexUnavailable instead of an
+    HTTP error. Existence is checked against EDGAR's quarterly directory
+    listing; a 403 whose body is an S3 AccessDenied page is the fallback
+    signal, while a 403 rate-limit page ("Request Rate Threshold Exceeded")
+    stays a real error so a day is never silently skipped under throttling."""
+    q=(day.month-1)//3+1
+    listing=daily_index_files(day.year,q,user_agent)
+    if listing is not None and f"master.{day.strftime('%Y%m%d')}.idx" not in listing:
+        raise DailyIndexUnavailable(str(day))
     try: return master_index_for_date(day,user_agent)
     except httpx.HTTPStatusError as e:
-        if e.response is not None and e.response.status_code in (403,404): raise DailyIndexUnavailable(str(day)) from e
+        resp=e.response
+        if resp is not None and resp.status_code==404: raise DailyIndexUnavailable(str(day)) from e
+        if resp is not None and resp.status_code==403 and listing is None:
+            body=(resp.text or "")[:2000]
+            if "rate threshold" not in body.lower(): raise DailyIndexUnavailable(str(day)) from e
         raise
 
+# A follow-on prospectus routinely mentions the issuer's *past* IPO ("since
+# our initial public offering in 2019 ..."), so the phrase alone is not
+# enough. Real IPO prospectuses say one of these on the cover page.
+_SECURITY = r"(?:shares of )?(?:our |the )?(?:class [ab] )?(?:common stock|common shares|ordinary shares|units|american depositary|ads|shares|securities)(?! ?(?:purchase )?warrants)"
+_IPO_COVER_PATTERNS=(
+    r"this is (?:an|our|the) initial public offering",
+    r"this prospectus (?:relates to|describes|covers|is for) (?:our|the) initial public offering",
+    r"we are offering .{0,120}? in (?:our|this) initial public offering",
+    rf"prior to this offering,? there (?:has|had) been no (?:established )?public (?:trading )?market for {_SECURITY}",
+    rf"there is (?:currently )?no (?:established )?public (?:trading )?market for {_SECURITY}",
+    rf"(?:currently,? )?no (?:established )?public (?:trading )?market (?:currently )?exists for {_SECURITY}",
+    rf"no (?:established )?public (?:trading )?market for {_SECURITY} currently exists",
+)
+
+def flatten_filing_text(text:str)->str:
+    """Decode HTML entities and collapse whitespace so cover-page phrases and
+    quoted symbols ("under the symbol &#147;FWRG&#148;") match literally."""
+    return re.sub(r"\s+"," ",html.unescape(text or ""))
+
+# Item 501(b)(4) makes an already-listed issuer print the last reported sale
+# price of its security; an IPO prospectus cannot. These mark a follow-on.
+_FOLLOW_ON_PATTERNS=(
+    r"last reported sales? price",
+    r"closing (?:sale )?price of (?:our|the) [a-z ]{0,40}(?:on|as reported (?:on|by)) (?:the )?(?:nasdaq|nyse|new york stock exchange|otc)",
+    r"(?:is|are) (?:currently )?(?:listed|quoted|traded) on (?:the )?(?:nasdaq|nyse|new york stock exchange|otc)[^.]{0,100}under the (?:ticker )?symbol",
+)
+# Weaker IPO evidence, accepted only together with an IPO mention or an
+# explicit "this is a ... public offering of" cover sentence: the dilution
+# section's IPO-price statement, or a pending/approved *initial* listing.
+_IPO_SUPPORT_PATTERNS=(
+    r"initial public offering price[^.]{0,80}exceeds the[^.]{0,60}tangible book value",
+    r"(?:has|have) been approved for listing",
+    r"(?:has|have) applied (?:to list|for (?:the )?listing)",
+    r"approved to (?:have|list) our [a-z ]{0,40}(?:listed|shares|stock)",
+    r"(?:has|have) been approved to (?:be )?list(?:ed)? on",
+)
+_PUBLIC_OFFERING_COVER=r"this is (?:a|an) (?:firm[- ]commitment |underwritten |best[- ]efforts |self[- ]underwritten )?(?:initial )?public offering of"
+
+def classify_prospectus(flat_text:str)->str:
+    """'ipo' | 'follow_on' | 'unknown' for a 424B4 prospectus (flattened text).
+
+    'unknown' is a real outcome: the caller must not store the filing as an
+    IPO, nor reclassify an existing row on evidence it did not read."""
+    low=flat_text.lower()
+    # An IPO prospectus cannot quote a last sale price of the security being
+    # offered, so a follow-on marker settles it before any cover phrase.
+    if any(re.search(p,low) for p in _FOLLOW_ON_PATTERNS):return "follow_on"
+    if any(re.search(p,low) for p in _IPO_COVER_PATTERNS):return "ipo"
+    support=any(re.search(p,low) for p in _IPO_SUPPORT_PATTERNS)
+    if support and ("initial public offering" in low or re.search(_PUBLIC_OFFERING_COVER,low)):return "ipo"
+    return "unknown"
+
+def is_ipo_prospectus(flat_text:str)->bool:
+    return classify_prospectus(flat_text)=="ipo"
+
 def parse_priced_ipo(text:str):
-    flat=re.sub(r"\s+"," ",text)
-    lowtxt=flat.lower()
-    if "initial public offering" not in lowtxt:return None
+    flat=flatten_filing_text(text)
+    if not is_ipo_prospectus(flat):return None
     lo,hi=parse_price_range(flat)
     # A 424B4 often states the exact public offering price more clearly than an S-1 range.
     exact=None
-    for p in [rf"initial public offering price[^$]{{0,100}}\$({_MONEY})",rf"public offering price[^$]{{0,80}}\$({_MONEY})\s+per share"]:
+    for p in [rf"initial public offering price[^$]{{0,100}}\$\s*({_MONEY})",
+              rf"public offering price[^$]{{0,80}}\$\s*({_MONEY})\s+per (?:share|unit|ads)",
+              rf"each unit has an offering price of \$\s*({_MONEY})",
+              rf"offering price of \$\s*({_MONEY}) per unit",
+              rf"(?:offering price|at a price) of \$\s*({_MONEY}) per (?:class [ab] )?(?:ordinary |common |depositary )?(?:share|unit|ads)"]:
         m=re.search(p,flat,re.I)
         if m:
             exact=_money(m.group(1))
             if exact is not None: break
     sym=""
-    for p in [r"under the symbol [\"“']?([A-Z]{1,6})",r"trading symbol\s*[:\-]?\s*([A-Z]{1,6})"]:
-        m=re.search(p,flat,re.I)
-        if m:sym=m.group(1).upper();break
+    # The prefix is case-insensitive, the symbol itself is not: "under the
+    # symbol" followed by lowercase prose ("our") is not a ticker.
+    for p in [r"(?i:under the (?:ticker )?symbols? )[\"“'‘�]?([A-Z]{1,6})(?=[\"”’'�.,;: ]|$)",r"(?i:trading symbol\s*[:\-]?\s*)[\"“'‘�]?([A-Z]{1,6})(?=[\"”’'�.,;: ]|$)"]:
+        m=re.search(p,flat)
+        if m:sym=m.group(1);break
     return {"symbol":sym,"final_price":exact or hi or lo,"price_low":lo,"price_high":hi}

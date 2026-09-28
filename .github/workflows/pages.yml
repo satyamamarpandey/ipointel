@@ -17,7 +17,12 @@ on:
   schedule:
     - cron: "0 */3 * * *"    # upcoming/current IPO refresh every 3 hours (UTC)
     - cron: "17 6 * * *"     # daily full pass (history + model performance), 06:17 UTC
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      backfill_us_days:
+        description: "Business days of historical SEC 424B4 filings to backfill into the 5-year US history (0 = none). Resumes automatically."
+        required: false
+        default: "0"
   push:
     branches: [master] # this repo's actual production branch (see git branch -vv) - not "main"
     paths:
@@ -27,6 +32,7 @@ on:
       - "app/**"
       - "scripts/build_pages.py"
       - "scripts/refresh_data.py"
+      - "scripts/backfill_us_priced.py"
       - "requirements.txt"
       - ".github/workflows/pages.yml"
 
@@ -83,6 +89,13 @@ jobs:
           DATABASE_URL: sqlite:///./data/ipo.db
           FULL_REFRESH: ${{ steps.scope.outputs.full }}
         run: python scripts/refresh_data.py
+
+      - name: Backfill historical US priced IPOs (SEC 424B4) - manual dispatch only, non-fatal
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.backfill_us_days != '' && github.event.inputs.backfill_us_days != '0'
+        continue-on-error: true
+        env:
+          DATABASE_URL: sqlite:///./data/ipo.db
+        run: python scripts/backfill_us_priced.py --repair-existing --days "${{ github.event.inputs.backfill_us_days }}" --max-minutes 45
 
       - name: Build static site
         env:
