@@ -15,6 +15,9 @@ from ..models import IPO, ScoreSnapshot, PerformanceSnapshot
 from ..services.market import parse_date
 
 MIN_SAMPLE = 20
+# True only once the walk-forward research model (services.model_eval) is what
+# produces the published numbers. Until then outputs are heuristic scores.
+DEPLOYED_RESEARCH_MODEL = False
 BANDS = [(90, 101), (80, 90), (70, 80), (60, 70), (50, 60), (0, 50)]
 BAND_LABELS = ["90-100", "80-89", "70-79", "60-69", "50-59", "<50"]
 
@@ -180,12 +183,22 @@ def _semantics(research: dict, target: str) -> dict:
     gate = t.get("release_gate") or {}
     oos = t.get("out_of_sample") or {}
     passed = bool(gate.get("passed"))
+    # The published numbers come from the heuristic in app/scoring.py, not from
+    # the research model. A passing research gate therefore never relabels the
+    # heuristic's output as a probability; only deploying the evaluated model
+    # (DEPLOYED_RESEARCH_MODEL) could do that.
+    calibrated = passed and DEPLOYED_RESEARCH_MODEL
+    if calibrated:
+        reason = "the deployed walk-forward model beats the base rate on AUC and Brier with stable folds"
+    elif passed:
+        reason = "the research model passes the gate but is not deployed; displayed values are heuristic scores"
+    else:
+        reason = "walk-forward evaluation has not beaten the base rate; values are heuristic scores, not probabilities"
     return {
-        "calibrated": passed, "label": "PROBABILITY" if passed else "SCORE",
+        "calibrated": calibrated, "label": "PROBABILITY" if calibrated else "SCORE",
+        "research_gate_passed": passed,
         "walk_forward_auc": oos.get("auc"), "walk_forward_n": oos.get("n"),
-        "release_gate": gate,
-        "reason": ("walk-forward model beats the base rate on AUC and Brier with stable folds" if passed else
-                   "walk-forward evaluation has not beaten the base rate; values are heuristic scores, not probabilities"),
+        "release_gate": gate, "reason": reason,
     }
 
 def evaluate(db: Session, include_research: bool = True) -> dict:

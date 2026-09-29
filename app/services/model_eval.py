@@ -335,6 +335,18 @@ def evaluate_market(rows: list[Row], country: str) -> dict:
             "out_of_sample": model, "baselines": {"base_rate": base, "constant_50": metrics(wf.constant_pairs), "heuristic_v2": metrics(wf.heuristic_pairs)},
             "folds": wf.folds, "release_gate": release_gate(model, base, wf.folds),
         }
+    # SPAC units hold near trust value, so in the US "positive 12m return"
+    # largely means "is a SPAC". Operating companies are evaluated on their own
+    # so a structural signal is never mistaken for predictive skill.
+    operating = [r for r in rows if not r.features.get("is_spac")]
+    if 0 < len(operating) < len(rows):
+        seg = {"rows": len(operating), "targets": {}}
+        for target in ("listing", "12m", "12m_relative"):
+            wf = walk_forward(operating, ALL_FEATURES, target)
+            model, base = metrics(wf.model_pairs), metrics(wf.base_rate_pairs)
+            seg["targets"][target] = {"out_of_sample": model, "baselines": {"base_rate": base},
+                                      "folds": wf.folds, "release_gate": release_gate(model, base, wf.folds)}
+        out["segments"] = {"operating_companies": seg}
     return out
 
 

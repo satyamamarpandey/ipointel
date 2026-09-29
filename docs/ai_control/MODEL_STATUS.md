@@ -25,6 +25,15 @@ Passed only when all hold: out-of-sample n >= 100, AUC >= 0.58, Brier below the 
 
 **Note on US 12m absolute:** the signal is the SPAC indicator. SPAC units trade near the $10 trust value while operating-company IPOs on average fall, so "positive 12m return" is mostly "is a SPAC". That is structure, not predictive skill; on the benchmark-relative target the model does not beat the base rate. The long-term label is therefore judged on the relative target and stays SCORE.
 
+## US operating companies (SPACs excluded, Q-009)
+| Target | n | Positive | Model AUC | Brier model / base rate | Gate |
+|---|---|---|---|---|---|
+| listing | 450 | 55.1% | 0.595 | 0.2410 / 0.2488 | passes |
+| 12m | 327 | 30.6% | 0.649 | 0.2167 / 0.2213 | passes |
+| 12m relative | 327 | 22.0% | 0.609 | 0.1698 / 0.1727 | passes |
+
+This is the first genuine out-of-sample signal: financial features (revenue, margins, cash flow from XBRL comparatives) plus structure. Margins over the base rate are thin (Brier improvement 1.5% to 3%). The research model is NOT deployed; published numbers remain the heuristic, labelled SCORE (`walkforward.DEPLOYED_RESEARCH_MODEL = False`). Deploying it for US operating companies is Q-010.
+
 ## Current heuristic (v2.1-evidence-first)
 AUC 0.50 in every market and target. On historical rows it produces one score value per market because the scored features were absent when those rows were ingested. Confidence now includes a freshness penalty for stale active issues.
 

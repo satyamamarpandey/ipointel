@@ -81,3 +81,11 @@ def test_features_for_only_uses_observations_available_before_listing():
     assert abs(f["log_revenue"] - me.math.log(50.0)) < 1e-9  # the 2024 figure was not yet available
     assert f["is_spac"] == 1.0
     assert f["revenue_growth_pct"] is None
+
+
+def test_passing_research_gate_never_relabels_the_heuristic():
+    from app.services import walkforward
+    research = {"targets": {"listing": {"release_gate": {"passed": True}, "out_of_sample": {"auc": 0.7, "n": 500}}}}
+    s = walkforward._semantics(research, "listing")
+    assert s["label"] == "SCORE" and s["calibrated"] is False and s["research_gate_passed"] is True
+    assert "not deployed" in s["reason"]

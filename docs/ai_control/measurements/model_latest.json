@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-09-29T07:19:06.607534+00:00",
+ "generated_at": "2026-09-29T07:35:52.312927+00:00",
  "availability_rules": {
   "structural": "properties of the issue printed in the prospectus/report before listing (size, price, structure, board)",
   "is_spac": "derived from the issuer name at ingestion",
@@ -953,6 +953,370 @@
        "min_n": 100,
        "min_auc": 0.58,
        "min_fold_stability": 0.6
+      }
+     }
+    }
+   },
+   "segments": {
+    "operating_companies": {
+     "rows": 600,
+     "targets": {
+      "listing": {
+       "out_of_sample": {
+        "n": 450,
+        "positive_rate_pct": 55.1,
+        "auc": 0.595,
+        "pr_auc": 0.643,
+        "brier": 0.241,
+        "log_loss": 0.6761,
+        "ece": 0.0429,
+        "calibration": [
+         {
+          "predicted_range": "0-20%",
+          "n": 2,
+          "avg_predicted_pct": 11.3,
+          "actual_positive_pct": 50.0
+         },
+         {
+          "predicted_range": "20-40%",
+          "n": 18,
+          "avg_predicted_pct": 35.0,
+          "actual_positive_pct": 44.4
+         },
+         {
+          "predicted_range": "40-60%",
+          "n": 284,
+          "avg_predicted_pct": 50.1,
+          "actual_positive_pct": 49.3
+         },
+         {
+          "predicted_range": "60-80%",
+          "n": 140,
+          "avg_predicted_pct": 67.6,
+          "actual_positive_pct": 67.9
+         },
+         {
+          "predicted_range": "80-100%",
+          "n": 6,
+          "avg_predicted_pct": 84.5,
+          "actual_positive_pct": 66.7
+         }
+        ]
+       },
+       "baselines": {
+        "base_rate": {
+         "n": 450,
+         "positive_rate_pct": 55.1,
+         "auc": 0.467,
+         "pr_auc": 0.525,
+         "brier": 0.2488,
+         "log_loss": 0.6908,
+         "ece": 0.0117,
+         "calibration": [
+          {
+           "predicted_range": "40-60%",
+           "n": 450,
+           "avg_predicted_pct": 53.9,
+           "actual_positive_pct": 55.1
+          }
+         ]
+        }
+       },
+       "folds": [
+        {
+         "year": 2021,
+         "n_train": 0,
+         "n_test": 52,
+         "skipped": "insufficient or single-class training data"
+        },
+        {
+         "year": 2022,
+         "n_train": 52,
+         "n_test": 56,
+         "skipped": "insufficient or single-class training data"
+        },
+        {
+         "year": 2023,
+         "n_train": 108,
+         "n_test": 77,
+         "train_positive_pct": 56.5,
+         "auc": 0.579,
+         "brier": 0.2495,
+         "design_columns": 9
+        },
+        {
+         "year": 2024,
+         "n_train": 185,
+         "n_test": 120,
+         "train_positive_pct": 51.9,
+         "auc": 0.643,
+         "brier": 0.235,
+         "design_columns": 9
+        },
+        {
+         "year": 2025,
+         "n_train": 305,
+         "n_test": 161,
+         "train_positive_pct": 53.4,
+         "auc": 0.608,
+         "brier": 0.235,
+         "design_columns": 9
+        },
+        {
+         "year": 2026,
+         "n_train": 466,
+         "n_test": 92,
+         "train_positive_pct": 55.4,
+         "auc": 0.561,
+         "brier": 0.2521,
+         "design_columns": 9
+        }
+       ],
+       "release_gate": {
+        "passed": true,
+        "checks": {
+         "sample_size_ok": true,
+         "auc_ok": true,
+         "beats_base_rate_brier": true,
+         "fold_stability_ok": true
+        },
+        "fold_stability_share": 1.0,
+        "thresholds": {
+         "min_n": 100,
+         "min_auc": 0.58,
+         "min_fold_stability": 0.6
+        }
+       }
+      },
+      "12m": {
+       "out_of_sample": {
+        "n": 327,
+        "positive_rate_pct": 30.6,
+        "auc": 0.649,
+        "pr_auc": 0.415,
+        "brier": 0.2167,
+        "log_loss": 0.6645,
+        "ece": 0.1339,
+        "calibration": [
+         {
+          "predicted_range": "0-20%",
+          "n": 204,
+          "avg_predicted_pct": 11.0,
+          "actual_positive_pct": 19.1
+         },
+         {
+          "predicted_range": "20-40%",
+          "n": 92,
+          "avg_predicted_pct": 27.5,
+          "actual_positive_pct": 53.3
+         },
+         {
+          "predicted_range": "40-60%",
+          "n": 27,
+          "avg_predicted_pct": 47.5,
+          "actual_positive_pct": 40.7
+         },
+         {
+          "predicted_range": "60-80%",
+          "n": 4,
+          "avg_predicted_pct": 63.2,
+          "actual_positive_pct": 25.0
+         }
+        ]
+       },
+       "baselines": {
+        "base_rate": {
+         "n": 327,
+         "positive_rate_pct": 30.6,
+         "auc": 0.549,
+         "pr_auc": 0.331,
+         "brier": 0.2213,
+         "log_loss": 0.6412,
+         "ece": 0.1018,
+         "calibration": [
+          {
+           "predicted_range": "0-20%",
+           "n": 202,
+           "avg_predicted_pct": 18.2,
+           "actual_positive_pct": 28.2
+          },
+          {
+           "predicted_range": "20-40%",
+           "n": 125,
+           "avg_predicted_pct": 24.0,
+           "actual_positive_pct": 34.4
+          }
+         ]
+        }
+       },
+       "folds": [
+        {
+         "year": 2021,
+         "n_train": 0,
+         "n_test": 54,
+         "skipped": "insufficient or single-class training data"
+        },
+        {
+         "year": 2022,
+         "n_train": 54,
+         "n_test": 57,
+         "skipped": "insufficient or single-class training data"
+        },
+        {
+         "year": 2023,
+         "n_train": 111,
+         "n_test": 79,
+         "train_positive_pct": 16.2,
+         "auc": 0.709,
+         "brier": 0.1775,
+         "design_columns": 10
+        },
+        {
+         "year": 2024,
+         "n_train": 190,
+         "n_test": 123,
+         "train_positive_pct": 19.5,
+         "auc": 0.719,
+         "brier": 0.1966,
+         "design_columns": 10
+        },
+        {
+         "year": 2025,
+         "n_train": 313,
+         "n_test": 125,
+         "train_positive_pct": 24.0,
+         "auc": 0.519,
+         "brier": 0.2613,
+         "design_columns": 10
+        }
+       ],
+       "release_gate": {
+        "passed": true,
+        "checks": {
+         "sample_size_ok": true,
+         "auc_ok": true,
+         "beats_base_rate_brier": true,
+         "fold_stability_ok": true
+        },
+        "fold_stability_share": 1.0,
+        "thresholds": {
+         "min_n": 100,
+         "min_auc": 0.58,
+         "min_fold_stability": 0.6
+        }
+       }
+      },
+      "12m_relative": {
+       "out_of_sample": {
+        "n": 327,
+        "positive_rate_pct": 22.0,
+        "auc": 0.609,
+        "pr_auc": 0.306,
+        "brier": 0.1698,
+        "log_loss": 0.5475,
+        "ece": 0.0773,
+        "calibration": [
+         {
+          "predicted_range": "0-20%",
+          "n": 212,
+          "avg_predicted_pct": 10.9,
+          "actual_positive_pct": 14.2
+         },
+         {
+          "predicted_range": "20-40%",
+          "n": 94,
+          "avg_predicted_pct": 28.6,
+          "actual_positive_pct": 37.2
+         },
+         {
+          "predicted_range": "40-60%",
+          "n": 21,
+          "avg_predicted_pct": 46.5,
+          "actual_positive_pct": 33.3
+         }
+        ]
+       },
+       "baselines": {
+        "base_rate": {
+         "n": 327,
+         "positive_rate_pct": 22.0,
+         "auc": 0.457,
+         "pr_auc": 0.233,
+         "brier": 0.1727,
+         "log_loss": 0.5301,
+         "ece": 0.0227,
+         "calibration": [
+          {
+           "predicted_range": "0-20%",
+           "n": 123,
+           "avg_predicted_pct": 18.4,
+           "actual_positive_pct": 23.6
+          },
+          {
+           "predicted_range": "20-40%",
+           "n": 204,
+           "avg_predicted_pct": 20.6,
+           "actual_positive_pct": 21.1
+          }
+         ]
+        }
+       },
+       "folds": [
+        {
+         "year": 2021,
+         "n_train": 0,
+         "n_test": 54,
+         "skipped": "insufficient or single-class training data"
+        },
+        {
+         "year": 2022,
+         "n_train": 54,
+         "n_test": 57,
+         "skipped": "insufficient or single-class training data"
+        },
+        {
+         "year": 2023,
+         "n_train": 111,
+         "n_test": 79,
+         "train_positive_pct": 20.7,
+         "auc": 0.626,
+         "brier": 0.1253,
+         "design_columns": 10
+        },
+        {
+         "year": 2024,
+         "n_train": 190,
+         "n_test": 123,
+         "train_positive_pct": 18.4,
+         "auc": 0.735,
+         "brier": 0.163,
+         "design_columns": 10
+        },
+        {
+         "year": 2025,
+         "n_train": 313,
+         "n_test": 125,
+         "train_positive_pct": 20.4,
+         "auc": 0.502,
+         "brier": 0.2046,
+         "design_columns": 10
+        }
+       ],
+       "release_gate": {
+        "passed": true,
+        "checks": {
+         "sample_size_ok": true,
+         "auc_ok": true,
+         "beats_base_rate_brier": true,
+         "fold_stability_ok": true
+        },
+        "fold_stability_share": 1.0,
+        "thresholds": {
+         "min_n": 100,
+         "min_auc": 0.58,
+         "min_fold_stability": 0.6
+        }
+       }
       }
      }
     }
