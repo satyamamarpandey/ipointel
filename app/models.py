@@ -282,9 +282,50 @@ class PerformanceSnapshot(Base):
     return_6m_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     return_12m_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     benchmark_return_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Extended windows (all vs the offer price when known, else the listing
+    # close - see market.windowed_returns). Null means "not observable yet or
+    # not derivable", never zero.
+    listing_open_return_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    return_7d_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    return_90d_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    return_24m_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # return_12m_pct minus the benchmark index return over the same window.
+    benchmark_relative_12m_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # The session actually used as the listing anchor (YYYY-MM-DD), which may
+    # differ from ipos.listing_date (US rows store the 424B4 filing date).
+    listing_date_used: Mapped[str] = mapped_column(String(20), default="")
     source_name: Mapped[str] = mapped_column(String(100), default="")
     source_url: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+class PriceBar(Base):
+    """One daily OHLC bar for one Indian security from NSE's official
+    bhavcopy archive (Tier 1). Only ISINs the product tracks are stored.
+    Prices are as traded that day (unadjusted for later splits)."""
+    __tablename__ = "price_bars"
+    __table_args__ = (UniqueConstraint("isin", "trade_date", name="uq_price_bar_isin_date"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    isin: Mapped[str] = mapped_column(String(20), index=True)
+    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    series: Mapped[str] = mapped_column(String(4), default="")
+    trade_date: Mapped[str] = mapped_column(String(10), index=True)  # YYYY-MM-DD
+    open: Mapped[float | None] = mapped_column(Float, nullable=True)
+    close: Mapped[float | None] = mapped_column(Float, nullable=True)
+    source_name: Mapped[str] = mapped_column(String(60), default="NSE bhavcopy")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+class BhavcopyDay(Base):
+    """Ingestion ledger for NSE bhavcopy files, one row per calendar day
+    attempted, so the backfill is resumable and idempotent: ok (file parsed),
+    holiday (NSE published nothing for that weekday), error (retry later)."""
+    __tablename__ = "bhavcopy_days"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trade_date: Mapped[str] = mapped_column(String(10), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="ok")
+    source_url: Mapped[str] = mapped_column(Text, default="")
+    rows_stored: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str] = mapped_column(Text, default="")
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 class FeatureObservation(Base):
     """One point-in-time observation of one modeled feature for one IPO,

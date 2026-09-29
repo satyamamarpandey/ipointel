@@ -41,6 +41,7 @@ def cross_source(provenance: list[Provenance]) -> list[dict]:
                         "code": "cross_source_disagreement",
                         "field": field,
                         "summary": f"Potential disclosure inconsistency (review required): '{field}' differs across sources.",
+                        "reason": f"relative difference {abs(va - vb) / base * 100:.1f}% exceeds the {NUMERIC_TOLERANCE * 100:.0f}% tolerance between independent sources",
                         "evidence_a": {"source": pa.source_name, "value": pa.observed_value, "url": pa.source_url, "observed_at": pa.observed_at.isoformat() if pa.observed_at else None},
                         "evidence_b": {"source": pb.source_name, "value": pb.observed_value, "url": pb.source_url, "observed_at": pb.observed_at.isoformat() if pb.observed_at else None},
                     })
@@ -48,24 +49,27 @@ def cross_source(provenance: list[Provenance]) -> list[dict]:
 
 def cross_field(ipo: IPO) -> list[dict]:
     out = []
-    def add(code, summary, a_label, a_val, b_label, b_val):
+    def add(code, summary, a_label, a_val, b_label, b_val, reason=""):
         out.append({
             "code": code, "field": None,
             "summary": f"Potential disclosure inconsistency (review required): {summary}",
+            "reason": reason or summary,
             "evidence_a": {"source": a_label, "value": a_val, "url": ipo.filing_url, "observed_at": ipo.updated_at.isoformat() if ipo.updated_at else None},
             "evidence_b": {"source": b_label, "value": b_val, "url": ipo.filing_url, "observed_at": ipo.updated_at.isoformat() if ipo.updated_at else None},
         })
 
     if ipo.net_income_m is not None and ipo.cfo_m is not None and ipo.net_income_m > 0 and ipo.cfo_m < 0:
         add("profit_vs_cash", "reported net income is positive while operating cash flow is negative.",
-            "net_income_m", ipo.net_income_m, "cfo_m", ipo.cfo_m)
+            "net_income_m", ipo.net_income_m, "cfo_m", ipo.cfo_m,
+            reason="a profitable period that consumes operating cash points to accruals or working-capital build that the two figures do not reconcile")
 
     if ipo.price_low is not None and ipo.final_price is not None and ipo.price_high is not None:
         lo, hi = min(ipo.price_low, ipo.price_high), max(ipo.price_low, ipo.price_high)
         band = hi - lo
         if band > 0 and (ipo.final_price < lo - 0.02 * band or ipo.final_price > hi + 0.02 * band):
             add("price_outside_band", "final price falls outside the disclosed price band.",
-                "price_band", f"{lo}-{hi}", "final_price", ipo.final_price)
+                "price_band", f"{lo}-{hi}", "final_price", ipo.final_price,
+                reason=f"final price {ipo.final_price} is outside {lo}-{hi} by more than 2% of the band width")
 
     subs = [ipo.qib_sub, ipo.nii_sub, ipo.retail_sub]
     known = [s for s in subs if s is not None]
@@ -73,13 +77,15 @@ def cross_field(ipo: IPO) -> list[dict]:
         lo_known, hi_known = min(known), max(known)
         if ipo.total_sub < lo_known - 0.5 or ipo.total_sub > hi_known + 0.5:
             add("subscription_mismatch", "total subscription figure is inconsistent with the disclosed category-wise subscription figures.",
-                "category subscriptions (QIB/NII/retail)", known, "total_sub", ipo.total_sub)
+                "category subscriptions (QIB/NII/retail)", known, "total_sub", ipo.total_sub,
+                reason=f"total {ipo.total_sub}x lies outside the range of category figures {lo_known}x to {hi_known}x by more than 0.5x")
 
     if ipo.fresh_issue_pct is not None and ipo.ofs_pct is not None:
         total = ipo.fresh_issue_pct + ipo.ofs_pct
         if total < 90 or total > 110:
             add("structure_mismatch", "fresh issue % and OFS % do not sum to approximately 100%.",
-                "fresh_issue_pct", ipo.fresh_issue_pct, "ofs_pct", ipo.ofs_pct)
+                "fresh_issue_pct", ipo.fresh_issue_pct, "ofs_pct", ipo.ofs_pct,
+                reason=f"the two components sum to {total:.1f}%, outside the 90% to 110% tolerance")
 
     return out
 

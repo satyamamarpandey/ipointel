@@ -50,6 +50,12 @@ def split_adjusted_issue_price(issue_price:float|None,listing_ts:float,splits:li
 IMPLAUSIBLE_LISTING_RETURN_PCT=2000.0
 # How many days before the stated listing date a symbol's first bar may fall and still be the listing session.
 FIRST_BAR_TOLERANCE_DAYS=4
+# A forward window (7d, 30d, ...) is reported only once a bar on or after its
+# target date exists. Any slack here lets a 7-day return be read off a
+# 3-day-old bar (a Thursday listing graded from the following Monday), so
+# none is allowed; a target that falls on a weekend is reported as soon as the
+# next session's bar arrives, using the last bar before the target.
+ELAPSED_TOLERANCE_DAYS=0
 
 def resolve_symbol_by_isin(isin:str,country:str)->tuple[str,str]:
     """ISIN -> exchange ticker via Yahoo's search endpoint (Tier 3). Returns
@@ -138,9 +144,9 @@ def windowed_returns(bars:list[dict],listing_dt:datetime,issue_price:float|None=
         out["listing_open_return_pct"]=(listing_open/issue_price-1)*100
     if listing_open and listing_close:
         out["listing_day_return_pct"]=(listing_close/listing_open-1)*100
-    for label,days in (("return_7d_pct",7),("return_1m_pct",30),("return_30d_pct",30),("return_6m_pct",182),("return_12m_pct",365),("return_24m_pct",730)):
+    for label,days in (("return_7d_pct",7),("return_1m_pct",30),("return_30d_pct",30),("return_90d_pct",90),("return_6m_pct",182),("return_12m_pct",365),("return_24m_pct",730)):
         target=listing_ts+days*86400
-        if target>bars[-1]["ts"]+7*86400:
+        if target>bars[-1]["ts"]+ELAPSED_TOLERANCE_DAYS*86400:
             continue  # window has not elapsed yet - absent, never zero, never "latest"
         b=bar_nearest_before_or_on(bars,target)
         if b and b["ts"]>listing_ts:

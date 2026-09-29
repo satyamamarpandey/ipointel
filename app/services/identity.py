@@ -24,6 +24,7 @@ Pages build all need to agree on:
 from __future__ import annotations
 import re
 import unicodedata
+from datetime import datetime
 
 # ---------------------------------------------------------------- names ----
 _CORPORATE_SUFFIXES = {
@@ -101,6 +102,36 @@ def status_can_transition(current: str | None, new: str | None) -> bool:
     if not current or current == new:
         return True
     return STATUS_RANK.get(new, 0) >= STATUS_RANK.get(current, 0)
+
+
+# ------------------------------------------------------------------- dates ----
+# Every date spelling the sources have been seen to use. Kept in sync with
+# market._DATE_FORMATS (market imports nothing from here, so the list lives in
+# both places rather than creating an import cycle).
+DATE_FORMATS = ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%d-%b-%Y", "%d %b %Y", "%d/%m/%Y", "%Y%m%d", "%d-%m-%Y", "%d-%b-%y")
+DATE_FIELDS = ("filing_date", "open_date", "close_date", "listing_date")
+_ISO_PREFIX = re.compile(r"^(\d{4}-\d{2}-\d{2})")
+
+
+def normalize_date(value) -> str:
+    """Canonical storage form YYYY-MM-DD for any spelling the sources use
+    ("21-Oct-2022", "20251022", "2026-07-01 00:00:00", "07-Jul-26"). Returns
+    "" for empty input and for anything unparseable - the caller decides
+    whether to keep the raw value (repair_dates does, with a data flag)."""
+    if value is None:
+        return ""
+    s = str(value).strip()
+    if not s:
+        return ""
+    m = _ISO_PREFIX.match(s)
+    if m:
+        s = m.group(1)
+    for fmt in DATE_FORMATS:
+        try:
+            return datetime.strptime(s, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return ""
 
 
 # ------------------------------------------------------------------ labels ----

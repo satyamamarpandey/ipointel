@@ -417,6 +417,7 @@ def parse_priced_ipo(text:str):
             if exact is not None:break
         if exact is not None:break
     if exact is None:exact=_loose_price(cover)
+    if exact is None:exact=parse_offer_price_v4(flat)
     sym=""
     # The prefix is case-insensitive, the symbol itself is not: "under the
     # symbol" followed by lowercase prose ("our") is not a ticker.
@@ -424,3 +425,133 @@ def parse_priced_ipo(text:str):
         m=re.search(p,flat)
         if m:sym=m.group(1);break
     return {"symbol":sym,"final_price":exact or hi or lo,"price_low":lo,"price_high":hi}
+
+
+# ----------------------------------------------------------------------------
+# v4 (2026-09-29): additive cover-page readers used as a LAST fallback by
+# parse_priced_ipo and by scripts/repair_us_prices.py. Nothing above changes.
+#
+# What the earlier readers missed, measured on the 40 US Listed rows without a
+# final price: a currency prefix ("price us$18.00 per ads", "usd$4.13 per
+# common unit"), zero-width characters inside the Item 501 table ("price
+# ​ $ ​ 5.80"), "ipo price $ 4.00" wording, a fixed-price
+# self-underwritten offering ("offered at the fixed price of $2.00 per
+# share") and, above all, offerings that have no offer price at all: direct
+# listings (a reference price is not an offer price), resale-only
+# registrations, debt offerings and de-SPAC proxy/prospectuses.
+_ZERO_WIDTH=re.compile("[​‌‍⁠﻿]")
+_CUR=r"(?:us\s?d?\s?)?\$"
+
+def clean_cover_text(flat_text:str)->str:
+    """Flattened text with zero-width characters removed and whitespace
+    re-collapsed, so table cells separated by ​ read as prose."""
+    return re.sub(r"\s+"," ",_ZERO_WIDTH.sub("",flat_text or ""))
+
+_PRICE_PATTERNS_V4=(
+    rf"(?:total )?(?:initial )?public offering price\s*(?:\(\d\)\s*)?{_CUR}\s*({_MONEY})",
+    rf"(?:the )?(?:ipo|initial public offering|public offering) price (?:of (?:our|the) [a-z ]{{0,40}}?)?(?:is|of|was|will be)\s*{_CUR}\s*({_MONEY})\s*per",
+    rf"(?:^|[.;] )price\s*{_CUR}\s*({_MONEY})\s*per (?:share|ads|adss|unit|common share|ordinary share|class [ab])",
+    rf"ipo price\s*(?:\(\d\)\s*)?{_CUR}\s*({_MONEY})",
+    rf"price to (?:the )?public.{{0,160}}?per (?:share|unit|ads|common share|ordinary share)\s*{_CUR}\s*({_MONEY})",
+    rf"(?:offer(?:ed)?|sold|sell)[a-z ]{{0,30}}?at (?:a|the) fixed (?:offering )?price of {_CUR}\s*({_MONEY}) per (?:share|unit)",
+    rf"public offering price of {_CUR}\s*({_MONEY}) per (?:common |ordinary )?(?:share|unit|ads)",
+    rf"offering price of the [a-z ]{{0,30}}?(?:in this offering )?is\s*{_CUR}\s*({_MONEY}) per",
+)
+# Strict subset safe to apply beyond the cover page: a combined filing prints a
+# resale prospectus first and the IPO prospectus (with its own Item 501 table)
+# hundreds of thousands of characters later.
+# Table cells and declarative "the price is" sentences only: the dilution
+# section's "based upon a public offering price of $X" is an assumed midpoint.
+_PRICE_PATTERNS_V4_DEEP=(_PRICE_PATTERNS_V4[0],_PRICE_PATTERNS_V4[3],
+    rf"(?:ipo|initial public offering|public offering) price (?:of the [a-z ]{{0,30}}?in this offering )?(?:is|was)\s*{_CUR}\s*({_MONEY})\s*per")
+_DEEP_CHARS=400_000
+
+def parse_offer_price_v4(flat_text:str)->float|None:
+    """Offer price from the cover page using the v4 patterns, or None. Never
+    returns a per-share amount from a par-value or warrant clause."""
+    low=flat_text.lower()
+    cover=clean_cover_text(cover_region(low))
+    def _scan(scope,patterns):
+        for p in patterns:
+            for m in re.finditer(p,scope,re.I):
+                before=scope[max(0,m.start()-120):m.start()]
+                if "warrant" in before or "exercis" in before or "par value" in before:continue
+                v=_price(m.group(1))
+                if v is not None:return v
+        return None
+    v=_scan(cover,_PRICE_PATTERNS_V4)
+    if v is None:v=_scan(clean_cover_text(low[:_DEEP_CHARS]),_PRICE_PATTERNS_V4_DEEP)
+    return v
+
+DIRECT_LISTING="direct_listing"
+RESALE_ONLY="resale_only"
+DEBT_OFFERING="debt_offering"
+MERGER_PROXY="merger_proxy"
+
+_DIRECT_LISTING_PATTERNS=(
+    r"in connection with (?:our|the) direct listing",
+    r"unlike an initial public offering, the resale",
+    r"(?:indicative )?current reference price",
+)
+_RESALE_ONLY_PATTERNS=(
+    r"this prospectus relates to the (?:resale|offer and sale|offer and resale) (?:from time to time )?(?:of|by)",
+    r"relates to the resale (?:of|by)",
+)
+# A combined filing prints the resale prospectus first and the IPO prospectus
+# after it; these phrases on the resale cover mean a primary offering exists.
+_PRIMARY_OFFERING_HINTS=r"we are offering|shares offered by (?:us|the company)|(?:ipo|primary offering|initial public offering) prospectus|in (?:our|the) initial public offering"
+_DEBT_PATTERNS=(
+    r"per note\s+total\s+public offering price\s*[0-9.]+\s*%",
+    r"public offering price\s*(?:\(\d\)\s*)?[0-9]{2,3}\.[0-9]{1,3}\s*%",
+)
+_MERGER_PROXY_PATTERNS=(
+    r"proxy statement/prospectus",
+    r"proxy statement and prospectus",
+    r"business combination agreement",
+)
+_FOLLOW_ON_PATTERNS_V4=(
+    r"closing sales? price of (?:our|the) [a-z ]{0,60}?(?:as reported on|on) (?:the )?(?:nasdaq|nyse|new york stock exchange)",
+    # Present tense on a junior venue: the security already trades somewhere.
+    r"(?:is|are) (?:currently |presently )?(?:quoted|listed|traded|trading) on (?:the )?(?:tsx venture|tsxv|tsx|otcqb|otcqx|otc markets|otc pink|cse)[^.]{0,140}under the (?:ticker |trading )?symbol",
+    r"(?:quoted|listed|trading|traded) on (?:the )?(?:tsx venture exchange|tsxv|otcqb venture market|otcqb|otcqx)[^.]{0,140}under the (?:ticker |trading )?symbol",
+    # Past tense on a national exchange: the shares began trading before this prospectus.
+    r"(?:began|commenced|started) trading on (?:the )?(?:nasdaq|nyse|new york stock exchange)[^.]{0,80}under the (?:ticker |trading )?symbol",
+)
+SPIN_OFF="spin_off_distribution"
+_SPIN_OFF_PATTERNS=(
+    r"in connection with the (?:planned |proposed )?distribution \(the [^)]{0,60}spin-off",
+    r"will be distributed in the spin-off",
+    r"spin-off[^.]{0,200}record date",
+)
+
+def classify_offering_type(flat_text:str)->str:
+    """One of DIRECT_LISTING | RESALE_ONLY | DEBT_OFFERING | MERGER_PROXY |
+    'follow_on' | 'ipo' | 'unknown' for a 424B4, judged on the cover page.
+    Extends classify_prospectus without changing it: a direct listing is a
+    genuine first listing with NO offer price; resale-only, debt and de-SPAC
+    documents are not IPOs of the registrant's equity."""
+    low=clean_cover_text(flat_text.lower())
+    cover=cover_region(low)
+    if any(re.search(p,cover) for p in _MERGER_PROXY_PATTERNS):return MERGER_PROXY
+    if any(re.search(p,cover) for p in _DEBT_PATTERNS):return DEBT_OFFERING
+    if any(re.search(p,cover) for p in _DIRECT_LISTING_PATTERNS):return DIRECT_LISTING
+    if any(re.search(p,cover) for p in _SPIN_OFF_PATTERNS) and not re.search(r"we are offering",cover):return SPIN_OFF
+    if any(re.search(p,cover) for p in _FOLLOW_ON_PATTERNS_V4):return "follow_on"
+    base=classify_prospectus(flat_text)
+    if base=="follow_on":return base
+    if any(re.search(p,cover) for p in _RESALE_ONLY_PATTERNS) and not re.search(_PRIMARY_OFFERING_HINTS,cover):
+        return RESALE_ONLY
+    return base
+
+
+_SYMBOL_PATTERNS=(r"(?i:under the (?:ticker )?symbols? )[\"“'‘�]?([A-Z]{1,6})(?=[\"”’'�.,;: ]|$)",
+                  r"(?i:trading symbol\s*[:\-]?\s*)[\"“'‘�]?([A-Z]{1,6})(?=[\"”’'�.,;: ]|$)")
+
+def parse_symbol(flat_text:str)->str:
+    """Exchange symbol quoted on a prospectus cover ("under the symbol “AMPL”"),
+    or "". Same rule parse_priced_ipo applies, exposed for documents that are
+    not priced IPOs (direct listings)."""
+    for p in _SYMBOL_PATTERNS:
+        m=re.search(p,flat_text or "")
+        if m:return m.group(1)
+    return ""

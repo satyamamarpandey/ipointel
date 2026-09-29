@@ -4,11 +4,11 @@ from datetime import datetime, timezone, timedelta
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 import httpx
-from ..models import IPO, ScoreSnapshot, Provenance, IngestionRun, PerformanceSnapshot
+from ..models import IPO, ScoreSnapshot, Provenance, IngestionRun, PerformanceSnapshot, FeatureObservation
 from ..scoring import compute_score, feature_snapshot, FEATURE_SCHEMA_VERSION
 from ..config import get_settings
-from . import sec,nse,market,enrichment
-from .identity import canonical_name, classify_issue_type, board_for_issue_type, status_can_transition, sanitize_label
+from . import sec,nse,market,enrichment,nse_master
+from .identity import canonical_name, classify_issue_type, board_for_issue_type, status_can_transition, sanitize_label, normalize_date, DATE_FIELDS
 from .net_safety import validate_outbound_url
 
 _NSE_ALLOWED_HOSTS={"nsearchives.nseindia.com","www.nseindia.com","nseindia.com","archives.nseindia.com"}
@@ -46,6 +46,18 @@ def clean_company_name(name:str,country:str="")->str:
         cleaned=_SEC_CIK_ARTIFACT.sub("",cleaned).strip()
     return cleaned
 
+_ARTIFACT_WORDS={"ipo","sme ipo","total","grand total","company name","name of the company","issuer"}
+
+def is_report_artifact_name(name:str|None)->bool:
+    """True for a 'company name' that is a spreadsheet footnote or header
+    token rather than an issuer: starts with an asterisk/hash footnote marker,
+    is a bare column word, or has no letters at all."""
+    if not name:return True
+    s=" ".join(str(name).split()).strip()
+    if s.startswith(("*","#","note","notes:")):return True
+    if s.lower() in _ARTIFACT_WORDS:return True
+    return not any(ch.isalpha() for ch in s)
+
 def repair_company_names(db:Session)->int:
     """Idempotent backfill for rows stored before the parser was fixed. Runs
     inside refresh_all() rather than as a one-shot script so every deployment
@@ -58,6 +70,39 @@ def repair_company_names(db:Session)->int:
         fixed=clean_company_name(ipo.company or "",ipo.country or "")
         if fixed and fixed!=ipo.company:
             ipo.company=fixed;changed+=1
+    return changed
+
+_DATE_FLAG_PREFIX="date_unparseable: "
+
+def _set_flag(ipo:IPO,prefix:str,flag:str|None)->bool:
+    """Replace any data_flags entry starting with `prefix` by `flag` (or drop
+    it when flag is None). Returns True when the list changed. Never appends a
+    duplicate, so repeated passes stay idempotent."""
+    flags=[f for f in (ipo.data_flags or []) if not str(f).startswith(prefix)]
+    if flag:flags.append(flag)
+    if flags!=(ipo.data_flags or []):
+        ipo.data_flags=flags;return True
+    return False
+
+def repair_dates(db:Session)->int:
+    """Idempotent normalisation of every stored date column to YYYY-MM-DD
+    (Phase 11). India rows arrived as "21-Oct-2022" / "2026-07-01 00:00:00",
+    US rows as "20251022"; all parse, none sort. Values that do not parse are
+    left exactly as they are (nothing is invented) and flagged once. Returns
+    the number of rows changed - 0 on every run after the first."""
+    changed=0
+    for ipo in db.scalars(select(IPO)).all():
+        row_changed=False;bad=[]
+        for f in DATE_FIELDS:
+            cur=getattr(ipo,f) or ""
+            if not cur:continue
+            iso=normalize_date(cur)
+            if iso and iso!=cur:setattr(ipo,f,iso);row_changed=True
+            elif not iso:bad.append(f"{f}={cur}")
+        flag=(_DATE_FLAG_PREFIX+"; ".join(bad)) if bad else None
+        if _set_flag(ipo,_DATE_FLAG_PREFIX,flag):row_changed=True
+        if row_changed:changed+=1
+    db.flush()
     return changed
 
 def external_key(row):
@@ -168,6 +213,11 @@ def upsert_ipo(db:Session,row:dict,source_name:str,source_url:str,tier:int,index
     # row to a different key (no duplicate, no changed /ipo/<slug>/ URL).
     if row.get("company"):
         row={**row,"company":clean_company_name(row["company"],row.get("country",""))}
+    # Canonical date storage (YYYY-MM-DD). The source spelling survives in
+    # row["raw"]; a value that does not parse is passed through unchanged so
+    # repair_dates() can flag it rather than silently dropping it here.
+    dates={f:(normalize_date(row[f]) or row[f]) for f in DATE_FIELDS if row.get(f) not in (None,"")}
+    if dates:row={**row,**dates}
     key=external_key(row); ipo=resolve_existing(db,row,key,index); created=False
     if not ipo:
         ipo=IPO(external_key=key,company=row.get("company") or "Unknown",country=row.get("country") or "Unknown");db.add(ipo);db.flush();created=True
@@ -279,16 +329,114 @@ def ingest_secondary_enrichment(db:Session):
         return _finish(db,run,seen,changed,warnings)
     except Exception as e:return _fail(db,run,e)
 
+SUBSCRIPTION_FIELDS=("qib_sub","nii_sub","retail_sub","total_sub")
+NSE_LIVE_SOURCE="NSE live issue API"
+SUBSCRIPTION_MAX_DAY=5
+
+def subscription_stage(open_date:str,today)->str:
+    """"subscription_day_N": N = 1 + business days elapsed since the issue
+    opened (capped). A Day 1 observation can never be confused with Day 3."""
+    od=market.parse_date(open_date)
+    if od is None:return "subscription_day_unknown"
+    d=od.date();n=1
+    while d<today and n<SUBSCRIPTION_MAX_DAY:
+        d+=timedelta(days=1)
+        if d.weekday()<5:n+=1
+    return f"subscription_day_{n}"
+
+def record_subscription_observations(db:Session,ipo:IPO,row:dict,today=None)->int:
+    """Point-in-time demand observations for a live India issue (Phase 7).
+    One FeatureObservation per category per day; re-observing the same day
+    updates the value in place. Returns the number of rows written/updated."""
+    today=today or now().date()
+    iso=today.isoformat();stage=subscription_stage(row.get("open_date") or ipo.open_date or "",today)
+    url=row.get("subscription_source_url") or nse.detail_url(ipo.symbol or row.get("symbol",""))
+    n=0
+    for f in SUBSCRIPTION_FIELDS:
+        v=row.get(f)
+        if v in (None,""):continue
+        obs=db.scalar(select(FeatureObservation).where(FeatureObservation.ipo_id==ipo.id,FeatureObservation.field_name==f,
+                                                        FeatureObservation.period_end==iso,FeatureObservation.source_name==NSE_LIVE_SOURCE))
+        if obs is None:
+            db.add(FeatureObservation(ipo_id=ipo.id,field_name=f,value=float(v),unit="x",source_name=NSE_LIVE_SOURCE,source_url=url,source_tier=1,
+                                      source_form="NSE API",period_end=iso,available_at=iso,availability_rule="nse_live_feed",
+                                      observed_at=now(),confidence=1.0,event_stage=stage,raw={"open_date":row.get("open_date") or ipo.open_date}))
+            n+=1
+        elif obs.value!=float(v):
+            obs.value=float(v);obs.observed_at=now();obs.event_stage=stage;n+=1
+    return n
+
 def ingest_nse(db:Session):
-    run=IngestionRun(source="NSE",status="running");db.add(run);db.commit();seen=changed=0
+    run=IngestionRun(source="NSE",status="running");db.add(run);db.commit();seen=changed=0;observations=0
     try:
         rows,warnings=nse.fetch_current()
         index=NameIndex(db)
         for row in rows:
             seen+=1
             if upsert_ipo(db,row,"NSE","https://www.nseindia.com/market-data/all-upcoming-issues-ipo",1,index):changed+=1
-        return _finish(db,run,seen,changed,warnings)
+            if any(row.get(f) not in (None,"") for f in SUBSCRIPTION_FIELDS):
+                ipo=resolve_existing(db,row,external_key(row),index)
+                if ipo is not None:observations+=record_subscription_observations(db,ipo,row)
+        db.flush()
+        return _finish(db,run,seen,changed,warnings,{"subscription_observations":observations})
     except Exception as e:return _fail(db,run,e)
+
+# ------------------------------------------------------- India identity ----
+_SYMBOL_FLAG_PREFIX="symbol_resolution: "
+
+def resolve_india_symbols(db:Session,masters:list|None=None,limit:int|None=None)->dict:
+    """Phase 2: attach the exchange symbol to India rows that never had one,
+    using NSE's own listed-security masters (Tier 1). Exact matches only -
+    see nse_master.MasterIndex.resolve for the closed set of outcomes. Rows
+    that already carry a symbol are cross-checked, never overwritten."""
+    stats={k:0 for k in (nse_master.RESOLVED_ISIN,nse_master.RESOLVED_NAME_ISIN_PREFIX,nse_master.CONFLICTING,nse_master.AMBIGUOUS,nse_master.UNRESOLVED)}
+    stats.update({"checked_existing":0,"existing_agree":0,"existing_conflict":0,"board_fixed":0})
+    if masters is None:masters=nse_master.fetch_masters()
+    index=nse_master.MasterIndex(masters)
+    candidates=db.scalars(select(IPO).where(IPO.country=="India",IPO.status.in_(("Listed","Open","Closed","Upcoming"))).order_by(IPO.id)).all()
+    done=0
+    for ipo in candidates:
+        if ipo.symbol:
+            ok,note=index.check_symbol(ipo.isin,ipo.symbol)
+            if ok is None:
+                # ISIN unknown to the equity masters: a debt/other-instrument
+                # ISIN stored on an equity IPO row (e.g. a bond series symbol
+                # from a report) is repaired only on an exact issuer match.
+                m,why=index.equity_for_non_equity_isin(ipo.isin,ipo.company)
+                if m is not None:
+                    raw=dict(ipo.raw or {});raw.setdefault("isin_as_reported",ipo.isin);raw.setdefault("symbol_as_reported",ipo.symbol);ipo.raw=raw
+                    ipo.isin=m.isin;ipo.symbol=m.symbol
+                    if ipo.board!=m.board:ipo.board=m.board;stats["board_fixed"]+=1
+                    add_provenance(db,ipo,"symbol",m.symbol,m.source_name,m.source_url,1)
+                    add_provenance(db,ipo,"isin",m.isin,m.source_name,m.source_url,1)
+                    _set_flag(ipo,_SYMBOL_FLAG_PREFIX,f"{_SYMBOL_FLAG_PREFIX}RESOLVED_ISSUER_EQUITY: {why}")
+                    stats["RESOLVED_ISSUER_EQUITY"]=stats.get("RESOLVED_ISSUER_EQUITY",0)+1
+                continue
+            stats["checked_existing"]+=1
+            if ok:
+                stats["existing_agree"]+=1;_set_flag(ipo,_SYMBOL_FLAG_PREFIX,None)
+            else:
+                stats["existing_conflict"]+=1;_set_flag(ipo,_SYMBOL_FLAG_PREFIX,f"{_SYMBOL_FLAG_PREFIX}{nse_master.CONFLICTING}: {note}")
+            continue
+        if limit is not None and done>=limit:break
+        done+=1
+        cls,m,reason=index.resolve(ipo.isin,ipo.company)
+        stats[cls]+=1
+        if m is None:
+            _set_flag(ipo,_SYMBOL_FLAG_PREFIX,f"{_SYMBOL_FLAG_PREFIX}{cls}: {reason}")
+            continue
+        ipo.symbol=m.symbol
+        add_provenance(db,ipo,"symbol",m.symbol,m.source_name,m.source_url,1)
+        if cls==nse_master.RESOLVED_NAME_ISIN_PREFIX and m.isin and m.isin!=ipo.isin:
+            raw=dict(ipo.raw or {});raw["isin_at_ipo"]=ipo.isin;ipo.raw=raw
+            ipo.isin=m.isin
+            add_provenance(db,ipo,"isin",m.isin,m.source_name,m.source_url,1)
+        if ipo.board!=m.board:
+            ipo.board=m.board;stats["board_fixed"]+=1
+        _set_flag(ipo,_SYMBOL_FLAG_PREFIX,None)
+        ipo.updated_at=now()
+    db.commit()
+    return stats
 
 def ingest_nse_history(db:Session,max_reports=3):
     run=IngestionRun(source="NSE Primary Market Reports",status="running");db.add(run);db.commit();seen=changed=0;warnings=[];skipped_non_ipo=0
@@ -351,6 +499,11 @@ def reconcile_lifecycle(db:Session)->dict:
     listed_by_name:dict[str,IPO]={}
     for ipo in india:
         raw=ipo.raw or {}
+        if ipo.status!="Not IPO" and is_report_artifact_name(ipo.company):
+            # A monthly-report footnote ("*Shares issued by the Company are
+            # partly paid up ...") or a bare column word ("IPO") parsed as an
+            # issuer name. Not an issuer, so not an IPO row.
+            ipo.status="Not IPO";_set_flag(ipo,"ipo_classification","ipo_classification: report artifact row, not an issuer");stats["not_ipo"]+=1;continue
         raw_type=raw.get("issue_type")
         if raw_type is not None and str(raw_type).strip() not in ("","None"):
             it=classify_issue_type(raw_type)
@@ -396,58 +549,21 @@ def market_refresh_candidates(db:Session,limit:int):
     return ipos,unresolved
 
 def refresh_market_performance(db:Session,limit=40):
+    """Post-listing price series for Listed rows, delegated to
+    services.performance (explicit attempt state per row, official NSE
+    bhavcopy first for India, Yahoo as the Tier-3 fallback). Rows that only
+    carry an ISIN are resolved by resolve_india_symbols() from NSE's masters
+    in the daily full pass, so no Yahoo symbol lookup happens here any more.
+    Returns the number of snapshots written, as before."""
+    from . import performance
     s=get_settings()
     if not s.allow_secondary_market_data:return 0
-    # Rows with a symbol first (cheap: one chart request each), then rows that
-    # only carry an ISIN, which need a symbol lookup before any price history
-    # can be fetched. Both bounded by `limit` per pass.
-    ipos,unresolved=market_refresh_candidates(db,limit)
-    n=0
-    bench_cache:dict[str,dict]={}
-    def bench_return(country,listing_dt,window_days):
-        key=country.lower()
-        if key not in bench_cache:
-            try:bench_cache[key]=market.fetch_benchmark_history(country) or {}
-            except Exception:bench_cache[key]={}
-        h=bench_cache[key]
-        bars=h.get("prices") or []
-        if not bars or listing_dt is None:return None
-        listing_ts=listing_dt.timestamp()
-        start=market.bar_on_or_after(bars,listing_ts)
-        end=market.bar_nearest_before_or_on(bars,listing_ts+window_days*86400)
-        if not start or not end or not start.get("close") or end["ts"]<=start["ts"]:return None
-        return (end["close"]/start["close"]-1)*100
-    for ipo in unresolved:
-        try:
-            sym,url=market.resolve_symbol_by_isin(ipo.isin,ipo.country)
-            if sym:
-                ipo.symbol=sym.split(".")[0];add_provenance(db,ipo,"symbol",ipo.symbol,"Yahoo Finance fallback",url,3);ipos.append(ipo)
-        except Exception:continue
-    for ipo in ipos:
-        try:
-            h=market.fetch_yahoo_history(ipo.symbol,ipo.country)
-            bars=h["prices"]
-            if not bars:continue
-            listing_dt=market.parse_date(ipo.listing_date)
-            wr=market.windowed_returns(bars,listing_dt,issue_price=ipo.final_price,splits=h.get("splits")) if listing_dt else {}
-            latest=bars[-1]
-            snap=PerformanceSnapshot(
-                ipo_id=ipo.id,
-                as_of_date=datetime.fromtimestamp(latest["ts"],tz=timezone.utc).date().isoformat(),
-                close_price=latest["close"],
-                listing_return_pct=wr.get("listing_return_pct"),
-                return_1m_pct=wr.get("return_1m_pct"),
-                return_6m_pct=wr.get("return_6m_pct"),
-                return_12m_pct=wr.get("return_12m_pct"),
-                benchmark_return_pct=bench_return(ipo.country,listing_dt,365) if listing_dt else None,
-                source_name="Yahoo Finance fallback",source_url=h["url"],
-            )
-            db.add(snap);n+=1
-        except Exception:continue
-    db.commit();return n
+    counts=performance.refresh_many(db,limit=limit,only_missing=False)
+    return int(counts.get("ok",0))+int(counts.get("implausible",0))
 
 def refresh_all(db:Session):
     repair_company_names(db)
+    repair_dates(db)
     reconcile_lifecycle(db)
     runs=[ingest_sec(db),ingest_sec_priced(db),ingest_nse(db)]
     if get_settings().secondary_enrichment_url:runs.append(ingest_secondary_enrichment(db))

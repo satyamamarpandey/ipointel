@@ -49,7 +49,7 @@ def test_backfill_is_bounded_resumable_and_skips_known_ciks(db, monkeypatch):
 
     ipo = db.scalar(select(IPO).where(IPO.external_key == "US:9000001"))
     assert ipo is not None and ipo.status == "Listed" and ipo.final_price == 12.0 and ipo.symbol == "BKFL"
-    assert ipo.listing_date == "20240304"
+    assert ipo.listing_date == "2024-03-04"
     assert db.scalar(select(IPO).where(IPO.external_key == "US:9000002")) is None  # follow-on never stored
 
     # Second invocation resumes after 'through' and does not re-download the known issuer.

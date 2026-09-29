@@ -23,8 +23,22 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.db import SessionLocal, init_db  # noqa: E402
-from app.services.pipeline import refresh_all, ingest_nse_history, refresh_market_performance, reconcile_lifecycle  # noqa: E402
+from app.services.pipeline import refresh_all, ingest_nse_history, refresh_market_performance, reconcile_lifecycle, resolve_india_symbols  # noqa: E402
 from app.services.outcomes import sync_prediction_outcomes  # noqa: E402
+from app.services import nse_bhavcopy  # noqa: E402
+from app.models import IPO  # noqa: E402
+from sqlalchemy import select  # noqa: E402
+from datetime import date, timedelta  # noqa: E402
+
+# Official NSE daily bhavcopies are the Tier-1 price source for India. The
+# daily pass only tops up the last two weeks (about 10 files); the multi-year
+# backfill is a manual dispatch of scripts/backfill_nse_bhavcopy.py.
+BHAVCOPY_LOOKBACK_DAYS = 14
+BHAVCOPY_MAX_FILES = 12
+# US pre-IPO financials from SEC XBRL companyfacts and 424B4 price repair are
+# resumable and bounded; the daily pass moves the cursor a little each day.
+FINANCIALS_DAILY_LIMIT = 40
+PRICE_REPAIR_DAILY_LIMIT = 15
 
 
 def main() -> int:
@@ -36,14 +50,37 @@ def main() -> int:
             runs.append(ingest_nse_history(db, max_reports=3))
             stats = reconcile_lifecycle(db)
             print(f"lifecycle reconcile: {stats}")
+            # India symbols from NSE's official masters (Tier 1). Full CSV
+            # download, so daily is the right cadence; never fatal.
+            try:
+                print(f"india symbol resolution: {resolve_india_symbols(db)}")
+            except Exception as e:
+                print(f"india symbol resolution failed: {type(e).__name__}: {e}")
+            try:
+                isins = {i for i in db.scalars(select(IPO.isin).where(IPO.country == "India", IPO.isin != "")).all()}
+                today = date.today()
+                print(f"nse bhavcopy: {nse_bhavcopy.ingest_days(db, isins, today - timedelta(days=BHAVCOPY_LOOKBACK_DAYS), today, max_files=BHAVCOPY_MAX_FILES)}")
+            except Exception as e:
+                print(f"nse bhavcopy ingest failed: {type(e).__name__}: {e}")
             # Post-listing market data for the historical explorer and the
-            # forward track record. Bounded per pass (secondary source, be
-            # polite); each daily pass extends coverage a little further.
+            # forward track record. Official bars first, Yahoo fallback;
+            # bounded per pass, each daily pass extends coverage further.
             try:
                 n = refresh_market_performance(db, limit=int(os.environ.get("MARKET_REFRESH_LIMIT", "150")))
                 print(f"market performance snapshots written: {n}")
             except Exception as e:  # never fatal - last-known-good snapshots stay
                 print(f"market performance refresh failed: {type(e).__name__}: {e}")
+            try:
+                from scripts.backfill_us_financials import run as backfill_financials
+                fin_run = backfill_financials(db, limit=FINANCIALS_DAILY_LIMIT, max_minutes=8)
+                print(f"us xbrl financials: {fin_run.status} seen={fin_run.rows_seen} changed={fin_run.rows_changed}")
+            except Exception as e:
+                print(f"us xbrl financials failed: {type(e).__name__}: {e}")
+            try:
+                from scripts.repair_us_prices import run as repair_prices
+                print(f"us price repair: {repair_prices(db, limit=PRICE_REPAIR_DAILY_LIMIT)}")
+            except Exception as e:
+                print(f"us price repair failed: {type(e).__name__}: {e}")
             try:
                 print(f"prediction outcomes: {sync_prediction_outcomes(db, limit=80)}")
             except Exception as e:

@@ -52,3 +52,18 @@ def test_unrelated_domains_that_merely_contain_the_letters_are_not_primary():
 def test_missing_or_malformed_urls_are_not_primary():
     for url in (None, "", "not a url", "http://["):
         assert is_primary_source_url(url) is False, repr(url)
+
+
+def test_confidence_decays_for_stale_active_issues_but_not_for_listed_rows():
+    from datetime import datetime, timezone, timedelta
+    from app.scoring import confidence, freshness_penalty, confidence_reasons
+    fresh = strong(); fresh.status = "Open"; fresh.updated_at = datetime.now(timezone.utc)
+    stale = strong(); stale.status = "Open"; stale.updated_at = datetime.now(timezone.utc) - timedelta(days=45)
+    listed = strong(); listed.status = "Listed"; listed.updated_at = datetime.now(timezone.utc) - timedelta(days=400)
+    assert freshness_penalty(fresh) == 0.0
+    assert 0 < freshness_penalty(stale) <= 0.12
+    assert freshness_penalty(listed) == 0.0
+    assert confidence(stale) < confidence(fresh)
+    assert confidence(listed) == confidence(fresh)
+    assert any("not refreshed" in r for r in confidence_reasons(stale))
+    assert not any("not refreshed" in r for r in confidence_reasons(fresh))

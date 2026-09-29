@@ -27,6 +27,18 @@ on:
         description: "Drop every post-listing performance snapshot and recompute this many now (0 = off). Use once after a change to the return calculation."
         required: false
         default: "0"
+      performance_limit:
+        description: "Listed rows to (re)fetch post-listing price series for in this run (NSE bhavcopy first for India, Yahoo fallback). 0 = daily default only."
+        required: false
+        default: "0"
+      financials_limit:
+        description: "US rows to backfill pre-IPO financials for from SEC XBRL companyfacts in this run. 0 = daily default only."
+        required: false
+        default: "0"
+      bhavcopy_files:
+        description: "Maximum NSE daily bhavcopy files to ingest into the price-bar store in this run. 0 = daily default only."
+        required: false
+        default: "0"
   push:
     branches: [master] # this repo's actual production branch (see git branch -vv) - not "main"
     paths:
@@ -104,6 +116,22 @@ jobs:
         env:
           DATABASE_URL: sqlite:///./data/ipo.db
         run: python scripts/backfill_us_priced.py --repair-existing --recompute-suspect-performance --recompute-all-performance "${{ github.event.inputs.recompute_all_performance || '0' }}" --days "${{ github.event.inputs.backfill_us_days || '0' }}" --max-minutes 45
+
+      - name: Bulk data backfills (manual dispatch only) - non-fatal
+        if: github.event_name == 'workflow_dispatch' && (github.event.inputs.performance_limit != '0' || github.event.inputs.financials_limit != '0' || github.event.inputs.bhavcopy_files != '0')
+        continue-on-error: true
+        env:
+          DATABASE_URL: sqlite:///./data/ipo.db
+        run: |
+          if [ "${{ github.event.inputs.bhavcopy_files || '0' }}" != "0" ]; then
+            python scripts/backfill_nse_bhavcopy.py --max-files "${{ github.event.inputs.bhavcopy_files }}"
+          fi
+          if [ "${{ github.event.inputs.performance_limit || '0' }}" != "0" ]; then
+            python scripts/backfill_performance.py --country all --limit "${{ github.event.inputs.performance_limit }}" --max-minutes 25
+          fi
+          if [ "${{ github.event.inputs.financials_limit || '0' }}" != "0" ]; then
+            python scripts/backfill_us_financials.py --limit "${{ github.event.inputs.financials_limit }}" --max-minutes 20
+          fi
 
       - name: Build static site
         env:

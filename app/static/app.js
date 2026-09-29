@@ -174,7 +174,7 @@
     const x = selected, s = x.score || {}, prov = x.provenance || [];
     const dates = [['Filed', x.filing_date], ['Opens', x.open_date], ['Closes', x.close_date], ['Lists', x.listing_date]].filter(([, v]) => v).map(([k, v]) => `<div><span>${k}</span><b>${esc(v)}</b></div>`).join('');
     $('#detail').innerHTML = `<div class="kicker">${esc(x.country)} · ${esc(x.status)} · ${esc(x.symbol || 'No ticker yet')}${x.board && x.board !== 'Mainboard' ? ' · ' + esc(x.board) : ''}${x.page_url ? ` · <a class="permalink" href="${esc(x.page_url)}">Open full page</a>` : ''}</div><h2>${esc(x.company)}</h2>
-<div class="scorehero"><div class="ring" style="--p:${s.overall || 0}"><b>${fmt(s.overall, 0)}</b></div><div><div class="kicker">Overall / 100</div><b>${esc(s.recommendation || 'Pending score')}</b><div class="muted" style="font-size:12px;margin-top:5px">${esc(s.horizon || '')}</div><div style="margin-top:9px"><span class="pill">Listing ${fmt(s.listing_probability, 0)}%</span> <span class="pill">Long term ${fmt(s.long_term_probability, 0)}%</span></div></div></div>
+<div class="scorehero"><div class="ring" style="--p:${s.overall || 0}"><b>${fmt(s.overall, 0)}</b></div><div><div class="kicker">Overall / 100</div><b>${esc(s.recommendation || 'Pending score')}</b><div class="muted" style="font-size:12px;margin-top:5px">${esc(s.horizon || '')}</div><div style="margin-top:9px"><span class="pill">Listing score ${fmt(s.listing, 0)}</span> <span class="pill">Long-term score ${fmt(s.long_term, 0)}</span></div><div class="kicker" style="margin-top:7px">Scores are heuristic and not calibrated probabilities. See Model performance.</div></div></div>
 <div class="kv"><div><span>Valuation</span><b>${esc(s.valuation || '–')}</b></div><div><span>Confidence</span><b class="${cls(s.confidence)}">${fmt(s.confidence, 0)}%</b></div><div><span>Price band</span><b>${money(x)}</b></div><div><span>Fair range</span><b>${s.fair_low ? `${sym(x)}${fmt(s.fair_low, 0)}–${fmt(s.fair_high, 0)}` : '–'}</b></div>${dates}</div>
 <h3>Confidence</h3>${confidenceBlock(x, s)}
 <h3>Score decomposition</h3>${bars(s.pillars)}
@@ -262,10 +262,38 @@
     const b = await json('/api/backtest');
     $('#backtest').innerHTML = `<div class="metricgrid" style="grid-template-columns:1fr 1fr"><div class="metric"><span>Realized samples</span><b>${b.sample_size}</b></div><div class="metric"><span>Brier score</span><b>${b.brier_score ?? '–'}</b></div></div><p><b>Status:</b> ${esc(b.status)}</p><p class="muted">Top-decile average listing return: ${b.top_decile_avg_listing_return_pct == null ? '–' : fmt(b.top_decile_avg_listing_return_pct, 1) + '%'}</p><p class="kicker">Historical backtest: retrospective scoring of already-listed IPOs. Kept separate from the live forward record below.</p>`;
   }
+  // Outcome cell for one forward prediction. Grading categories come from the
+  // backend ledger (services.forward_grading); an older JSON without
+  // `grading` falls back to the listed / not-listed wording.
+  function outcomeCell(p) {
+    const g = p.grading || null;
+    const ret = p.outcome && p.outcome.listing_close_return_pct != null ? p.outcome.listing_close_return_pct : null;
+    if (!g) return p.outcome_known ? (ret != null ? fmt(ret, 1) + '%' : 'listed, price data pending') : 'not yet listed';
+    const reason = esc(g.reason || '');
+    switch (g.category) {
+      case 'GRADED': return ret != null ? `<b class="${ret >= 0 ? 'good' : 'bad'}">${ret >= 0 ? '+' : ''}${fmt(ret, 1)}%</b>` : 'graded';
+      case 'PENDING': return 'listed, grading pending';
+      case 'NOT_YET_ELIGIBLE': return 'not yet listed';
+      case 'INVALID_FORWARD_RECORD': return `invalid: ${reason}`;
+      default: return String(g.category || '').startsWith('BLOCKED') ? `blocked: ${reason}` : esc(g.category || '');
+    }
+  }
   async function loadTrackRecord() {
     const t = await json('/api/track-record');
-    const rows = t.predictions.slice(0, 40).map(p => `<tr><td><b>${esc(p.company)}</b><div class="kicker">${esc(p.model_version)} · ${esc(p.feature_schema_version || '')}</div></td><td>${marketLabel(p.country)}</td><td>${esc(p.event_stage)}</td><td>${new Date(p.predicted_at).toISOString().slice(0, 10)}</td><td>${p.overall_score}</td><td>${fmt(p.confidence, 0)}%</td><td>${esc(p.recommendation)}</td><td>${p.outcome_known ? (p.outcome && p.outcome.listing_close_return_pct != null ? fmt(p.outcome.listing_close_return_pct, 1) + '%' : 'listed, price data pending') : 'not yet listed'}</td></tr>`).join('');
-    $('#forwardrecord').innerHTML = `<p class="muted">${esc(t.note)}</p><div class="metricgrid" style="grid-template-columns:1fr 1fr"><div class="metric"><span>Forward predictions recorded</span><b>${t.total_forward_predictions}</b></div><div class="metric"><span>Graded with a realized outcome</span><b>${t.graded_with_outcome}</b></div></div>${t.predictions.length ? `<div class="tablewrap"><table class="table"><thead><tr><th scope="col">Company</th><th scope="col">Market</th><th scope="col">Trigger</th><th scope="col">Predicted</th><th scope="col">Overall</th><th scope="col">Confidence</th><th scope="col">Recommendation</th><th scope="col">Outcome</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="empty">No forward predictions recorded yet.</p>'}`;
+    const rows = t.predictions.slice(0, 40).map(p => `<tr><td><b>${esc(p.company)}</b><div class="kicker">${esc(p.model_version)} · ${esc(p.feature_schema_version || '')}</div></td><td>${marketLabel(p.country)}</td><td>${esc(p.event_stage)}</td><td>${new Date(p.predicted_at).toISOString().slice(0, 10)}</td><td>${p.overall_score}</td><td>${fmt(p.confidence, 0)}%</td><td>${esc(p.recommendation)}</td><td>${outcomeCell(p)}</td></tr>`).join('');
+    const L = t.ledger && t.ledger.by_category ? t.ledger : null;
+    let metrics;
+    if (L) {
+      const c = L.by_category, n = k => c[k] || 0;
+      const blocked = n('BLOCKED_IDENTITY') + n('BLOCKED_OFFER_PRICE') + n('BLOCKED_MARKET_DATA');
+      const gradable = L.gradable != null ? L.gradable : n('GRADED') + n('PENDING') + blocked;
+      const graded = L.graded != null ? L.graded : n('GRADED');
+      metrics = [['Forward predictions recorded', t.total_forward_predictions], ['Gradable (listed)', gradable], ['Graded with outcome', graded], ['Pending', n('PENDING')], ['Blocked', blocked], ['Not yet eligible', n('NOT_YET_ELIGIBLE')], ['Invalid records', n('INVALID_FORWARD_RECORD')]];
+    } else {
+      metrics = [['Forward predictions recorded', t.total_forward_predictions], ['Graded with a realized outcome', t.graded_with_outcome]];
+    }
+    const grid = `<div class="metricgrid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">${metrics.map(([k, v]) => `<div class="metric"><span>${esc(k)}</span><b>${v}</b></div>`).join('')}</div>`;
+    $('#forwardrecord').innerHTML = `<p class="muted">${esc(t.note)}</p>${grid}${t.predictions.length ? `<div class="tablewrap"><table class="table"><thead><tr><th scope="col">Company</th><th scope="col">Market</th><th scope="col">Trigger</th><th scope="col">Predicted</th><th scope="col">Overall</th><th scope="col">Confidence</th><th scope="col">Recommendation</th><th scope="col">Outcome</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="empty">No forward predictions recorded yet.</p>'}`;
   }
 
   // ------------------------------------------------------ compare / calendar
@@ -299,9 +327,28 @@
     let h = `<h3>${esc(title)} <span class="pill">${esc(m.status === 'evaluated' ? 'evaluated' : 'insufficient sample')}</span></h3>`;
     if (m.status === 'evaluated') {
       h += `<div class="kv"><div><span>Sample</span><b>${m.sample_size}</b></div><div><span>AUC</span><b>${m.auc ?? '–'}</b></div><div><span>Brier</span><b>${m.brier_score ?? '–'}</b></div><div><span>Log loss</span><b>${m.log_loss ?? '–'}</b></div><div><span>Spearman (score vs return)</span><b>${m.spearman_score_vs_return ?? '–'}</b></div><div><span>Actual positive rate</span><b>${fmt(m.positive_rate_actual_pct, 0)}%</b></div></div>`;
+      if (m.auc == null || m.auc <= 0.55) h += '<p class="muted">No discriminating power measured yet; scores are shown for transparency only.</p>';
       if (m.calibration && m.calibration.length) h += `<p class="kicker">Calibration</p><div class="tablewrap"><table class="table"><thead><tr><th scope="col">Predicted</th><th scope="col">n</th><th scope="col">Avg predicted</th><th scope="col">Actual positive</th></tr></thead><tbody>${m.calibration.map(c => `<tr><td>${esc(c.predicted_range)}</td><td>${c.n}</td><td>${fmt(c.avg_predicted_pct, 1)}%</td><td>${fmt(c.actual_positive_pct, 1)}%</td></tr>`).join('')}</tbody></table></div>`;
     } else h += `<p class="muted">${esc(m.status)}</p>`;
     h += bandTable(m.band_breakdown);
+    return h;
+  }
+  function semanticsLine(ps) {
+    if (!ps || !ps.listing) return '';
+    const one = (label, s) => `${label}: ${s.calibrated ? 'calibrated probability' : 'score, not a probability'}${s.walk_forward_auc != null ? ` (walk-forward AUC ${fmt(s.walk_forward_auc, 2)}, n ${s.walk_forward_n})` : ''}`;
+    return `<p class="kicker">${esc(one('Listing output', ps.listing))}. ${esc(one('Long-term output', ps.long_term))}.</p>`;
+  }
+  function researchBlock(res) {
+    if (!res || !res.targets) return '';
+    let h = '<h3>Walk-forward research (out of sample by listing year)</h3>';
+    h += `<p class="kicker">Ridge logistic on features available at or before listing, trained only on earlier years. Baselines are scored on the same test rows. Coverage: ${esc(Object.entries(res.feature_coverage_pct || {}).filter(([, v]) => v != null && v > 0).map(([k, v]) => `${k} ${v}%`).join(', ') || 'no features populated')}.</p>`;
+    for (const [target, t] of Object.entries(res.targets)) {
+      const oos = t.out_of_sample || {};
+      if (!oos.n) { h += `<p class="muted">${esc(target)}: no out-of-sample predictions yet (insufficient training history).</p>`; continue; }
+      const rows = [['Walk-forward model', oos]].concat(Object.entries(t.baselines || {}).map(([k, v]) => [k.replace(/_/g, ' '), v]));
+      h += `<p class="kicker">${esc(target === '12m' ? 'Long-term (12m) target' : 'Listing target')}: ${oos.n} out-of-sample rows, positive rate ${fmt(oos.positive_rate_pct, 1)}%. Release gate: <b>${t.release_gate && t.release_gate.passed ? 'passed' : 'not met'}</b>.</p>`;
+      h += `<div class="tablewrap"><table class="table"><thead><tr><th scope="col">Predictor</th><th scope="col">AUC</th><th scope="col">PR-AUC</th><th scope="col">Brier</th><th scope="col">Log loss</th></tr></thead><tbody>${rows.filter(([, v]) => v && v.n).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${fmt(v.auc, 3)}</td><td>${v.pr_auc == null ? 'n/a' : fmt(v.pr_auc, 3)}</td><td>${fmt(v.brier, 4)}</td><td>${fmt(v.log_loss, 4)}</td></tr>`).join('')}</tbody></table></div>`;
+    }
     return h;
   }
   async function loadModelPerf() {
@@ -310,9 +357,12 @@
     let h = '<p class="kicker">Historical backtest by market. Fixed-weight model, evaluated on the earliest recorded score per IPO. Statistics are withheld below the minimum sample.</p>';
     for (const country of Object.keys(r)) {
       const c = r[country];
+      if (!c || typeof c !== 'object' || !('listing_model' in c)) continue;
       h += `<h2>${esc(country)} <span class="kicker">${c.total_listed_with_score} listed IPOs with a recorded score</span></h2>`;
+      h += semanticsLine(c.probability_semantics);
       h += modelBlock('Listing model', c.listing_model);
       h += modelBlock('Long-term (12m) model', c.long_term_model);
+      h += researchBlock(c.research);
     }
     $('#modelPerf').innerHTML = h;
     $('#modelPerf').dataset.loaded = '1';

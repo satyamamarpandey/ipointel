@@ -10,6 +10,11 @@ from statistics import mean, pstdev
 from ..models import IPO, PerformanceSnapshot
 
 FEATURES = ["issue_size_m", "growth_pct", "margin_pct", "ps_multiple", "total_sub"]
+# Each dimension a candidate lacks (that the target has) inflates its distance
+# by this share; beyond MAX_ADJUSTED_DISTANCE (z-score units) a row is not a
+# comparable and is dropped rather than shown as a weak filler match.
+MISSING_DIM_PENALTY = 0.25
+MAX_ADJUSTED_DISTANCE = 2.0
 
 def _features(ipo: IPO) -> dict:
     growth = None
@@ -58,12 +63,19 @@ def find_similar(db: Session, target: IPO, k: int = 8, candidates: list[IPO] | N
             m, s = stats[f]
             dist2 += ((cf[f] - m) / s - (tf[f] - m) / s) ** 2
         dist = (dist2 / len(dims)) ** 0.5
-        scored.append((dist, len(dims), c, cf, dims))
-    scored.sort(key=lambda x: (x[0], -x[1]))
+        # A candidate compared on fewer of the target's available dimensions
+        # is a weaker match even at equal distance: penalise each missing
+        # dimension rather than letting sparse rows float to the top.
+        missing = len(usable_features) - len(dims)
+        adjusted = dist * (1 + MISSING_DIM_PENALTY * missing)
+        if adjusted > MAX_ADJUSTED_DISTANCE:
+            continue  # not a comparable at all; do not pad the list with it
+        scored.append((adjusted, dist, len(dims), c, cf, dims))
+    scored.sort(key=lambda x: (x[0], -x[2]))
     top = scored[:k]
 
     matches = []
-    for dist, ndims, c, _cf, dims in top:
+    for adjusted, dist, ndims, c, _cf, dims in top:
         perf = _latest_perf(db, c.id)
         why = []
         for f in dims:
@@ -71,7 +83,9 @@ def find_similar(db: Session, target: IPO, k: int = 8, candidates: list[IPO] | N
             why.append(f"comparable {label}")
         matches.append({
             "ipo_id": c.id, "company": c.company, "symbol": c.symbol, "listing_date": c.listing_date,
-            "distance": round(dist, 3), "matched_on": why, "dims_used": ndims,
+            "distance": round(dist, 3), "adjusted_distance": round(adjusted, 3), "matched_on": why, "dims_used": ndims,
+            "dims_missing": len(usable_features) - ndims,
+            "match_strength": "close" if adjusted <= 0.75 else "moderate" if adjusted <= 1.25 else "weak",
             "listing_return_pct": round(perf.listing_return_pct, 1) if perf and perf.listing_return_pct is not None else None,
         })
 

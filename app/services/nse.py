@@ -53,6 +53,31 @@ def normalize(d:dict,status="Upcoming"):
       "shares_offered_m":offered/1_000_000 if offered and offered>100_000 else offered,"raw":d
     }
 
+def detail_url(symbol:str,series:str="EQ")->str:
+    return f"{BASE}/api/ipo-detail?symbol={symbol}&series={series or 'EQ'}"
+
+# Category labels as NSE's per-issue bid table prints them. Sub-rows such as
+# "1(a) Foreign Institutional Investors" roll up into the parent and are not
+# separate model inputs.
+_CATEGORY_FIELDS=(("qualified institutional","qib_sub"),("non institutional","nii_sub"),("non-institutional","nii_sub"),("retail","retail_sub"))
+
+def parse_bid_details(payload)->dict:
+    """{qib_sub, nii_sub, retail_sub} (times subscribed) from NSE's
+    /api/ipo-detail response. Only top-level categories are read (srNo
+    without a letter suffix); missing or blank values stay absent."""
+    out={}
+    if not isinstance(payload,dict):return out
+    for row in payload.get("bidDetails") or []:
+        if not isinstance(row,dict):continue
+        sr=str(row.get("srNo") or "")
+        if "(" in sr:continue  # sub-category (FIIs, mutual funds, ...)
+        cat=str(row.get("category") or "").lower()
+        times=_num(row.get("noOfTime"))
+        if times is None:continue
+        for needle,field in _CATEGORY_FIELDS:
+            if needle in cat and field not in out:out[field]=times;break
+    return out
+
 def fetch_current():
     headers={"User-Agent":"Mozilla/5.0 IPOIntelligence/2.0","Accept":"application/json,text/plain,*/*","Referer":f"{BASE}/market-data/all-upcoming-issues-ipo"}
     rows=[]; warnings=[]; seen=set()
@@ -64,7 +89,19 @@ def fetch_current():
                 r=c.get(url);r.raise_for_status()
                 for d in extract_list(r.json()):
                     x=normalize(d,status);key=(x["company"].lower(),x["symbol"].lower())
-                    if key not in seen:seen.add(key);rows.append(x)
+                    if key in seen:continue
+                    seen.add(key)
+                    if status=="Open" and x["symbol"]:
+                        # Per-category demand (QIB / NII / Retail) lives on the
+                        # issue's own endpoint. Observed live, at event time -
+                        # the only defensible source for it.
+                        durl=detail_url(x["symbol"],str(d.get("series") or "EQ"))
+                        try:
+                            dr=c.get(durl);dr.raise_for_status()
+                            cats=parse_bid_details(dr.json())
+                            if cats:x={**x,**cats,"subscription_source_url":durl}
+                        except Exception as e:warnings.append(f"NSE detail {x['symbol']}: {type(e).__name__}: {e}")
+                    rows.append(x)
             except Exception as e:warnings.append(f"NSE {label}: {type(e).__name__}: {e}")
     return rows,warnings
 

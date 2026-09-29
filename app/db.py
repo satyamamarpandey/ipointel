@@ -48,6 +48,11 @@ def _migrate_sqlite():
             "isin": "VARCHAR(20) DEFAULT ''",
             "market_data_status": "VARCHAR(30) DEFAULT ''", "market_data_checked_at": "DATETIME",
         },
+        # price_bars / bhavcopy_days are whole new tables: create_all adds them.
+        "performance_snapshots": {
+            "listing_open_return_pct": "FLOAT", "return_7d_pct": "FLOAT", "return_90d_pct": "FLOAT",
+            "return_24m_pct": "FLOAT", "benchmark_relative_12m_pct": "FLOAT", "listing_date_used": "VARCHAR(20) DEFAULT ''",
+        },
         "prediction_outcomes": {
             "grading_status": "VARCHAR(40) DEFAULT ''", "grading_note": "TEXT DEFAULT ''", "graded_at": "DATETIME",
         },

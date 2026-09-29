@@ -29,6 +29,7 @@ from .services import similarity as similarity_svc
 from .services import sensitivity as sensitivity_svc
 from .services import changes as changes_svc
 from .services import walkforward as walkforward_svc
+from .services import forward_grading as grading_svc
 from .services.identity import sanitize_label, ACTIVE_STATUSES
 from .scoring import confidence_reasons
 
@@ -543,11 +544,14 @@ def track_record(limit:int=100,db:Session=Depends(db_dep),_lead:WaitlistLead=Dep
     is a ScoreSnapshot written while the IPO's outcome was NOT yet known."""
     rows=db.scalars(select(ScoreSnapshot).where(ScoreSnapshot.is_forward==True).order_by(ScoreSnapshot.created_at.desc()).limit(limit)).all()  # noqa: E712
     out=[]
+    today=datetime.now(timezone.utc).date()
     for sc in rows:
         ipo=db.get(IPO,sc.ipo_id)
         if not ipo:continue
         outcome=db.scalar(select(PredictionOutcome).where(PredictionOutcome.score_snapshot_id==sc.id))
+        category,reason=grading_svc.classify_prediction(ipo,outcome,today)
         out.append({
+            "grading":{"category":category,"reason":reason},"outcome_status":category,
             "ipo_id":ipo.id,"company":ipo.company,"country":ipo.country,"status":ipo.status,
             "predicted_at":sc.created_at.isoformat(),"event_stage":sc.event_stage,
             "model_version":sc.model_version,"feature_schema_version":sc.feature_schema_version,
@@ -555,17 +559,18 @@ def track_record(limit:int=100,db:Session=Depends(db_dep),_lead:WaitlistLead=Dep
             "listing_gain_probability":sc.listing_gain_probability,"long_term_outperform_probability":sc.long_term_outperform_probability,
             "recommendation":sanitize_label(sc.recommendation),"valuation_label":sc.valuation_label,"confidence":sc.confidence,
             "outcome_known":ipo.status=="Listed",
-            "outcome": None if not outcome else {
+            "outcome": None if not outcome or category!=grading_svc.GRADED else {
                 "listing_open_return_pct":outcome.listing_open_return_pct,"listing_close_return_pct":outcome.listing_close_return_pct,
                 "return_7d_pct":outcome.return_7d_pct,"return_30d_pct":outcome.return_30d_pct,"return_6m_pct":outcome.return_6m_pct,
                 "return_12m_pct":outcome.return_12m_pct,"return_24m_pct":outcome.return_24m_pct,
                 "benchmark_relative_return_pct":outcome.benchmark_relative_return_pct,
+                "graded_at":outcome.graded_at.isoformat() if outcome.graded_at else None,"source":outcome.source_name,
             },
         })
-    total_forward=db.scalar(select(func.count()).select_from(ScoreSnapshot).where(ScoreSnapshot.is_forward==True)) or 0  # noqa: E712
-    graded=db.scalar(select(func.count()).select_from(PredictionOutcome)) or 0
-    return {"note":"Every row is a prediction made while the IPO's outcome was not yet known, never rewritten after the fact. Separate from /api/backtest, which also includes retrofitted historical scoring.",
-            "total_forward_predictions":total_forward,"graded_with_outcome":graded,"predictions":out}
+    ledger=grading_svc.public_ledger(db,today)
+    return {"note":"Every row is a prediction made while the IPO's outcome was not yet known, never rewritten after the fact. Separate from /api/backtest, which also includes retrofitted historical scoring. Every prediction carries an explicit grading category; nothing is dropped silently.",
+            "total_forward_predictions":ledger["total"],"graded_with_outcome":ledger["graded"],"gradable":ledger["gradable"],
+            "ledger":ledger,"categories":list(grading_svc.CATEGORIES),"predictions":out}
 
 @app.get("/api/admin/waitlist.csv")
 def waitlist_export(x_admin_token:str|None=Header(default=None),db:Session=Depends(db_dep)):

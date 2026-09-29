@@ -51,6 +51,17 @@ def _base_growth(ipo: IPO) -> float | None:
             return None
     return None
 
+def missing_inputs(ipo: IPO, fields: tuple[str, ...]) -> list[str]:
+    """Names of the required inputs that are absent (or non-positive where a
+    positive value is required). "a|b" means any one of the alternatives."""
+    out = []
+    for f in fields:
+        alts = f.split("|")
+        present = any(getattr(ipo, a, None) not in (None, 0, 0.0) for a in alts)
+        if not present:
+            out.append(f.replace("|", " or "))
+    return out
+
 def market_cap(ipo: IPO) -> float | None:
     px = ipo.final_price or ipo.price_high
     if px is None or ipo.post_issue_shares_m is None:
@@ -63,7 +74,9 @@ def scenario_dcf(ipo: IPO) -> dict:
     growth0 = _base_growth(ipo)
     mcap = market_cap(ipo)
     if revenue0 is None or revenue0 <= 0 or margin0 is None:
-        return {"available": False, "reason": "Revenue and EBITDA are both required to run a DCF; at least one is missing for this filer."}
+        return {"available": False, "label": "INSUFFICIENT DATA",
+                "reason": "Revenue and EBITDA are both required to run a DCF; at least one is missing for this filer.",
+                "missing_fields": missing_inputs(ipo, ("revenue_m", "ebitda_m"))}
     base_growth = growth0 if growth0 is not None else 0.15
     net_cash = (ipo.cash_m or 0) - (ipo.debt_m or 0)
     scenarios = {}
@@ -114,7 +127,9 @@ def reverse_dcf(ipo: IPO) -> dict:
     revenue0 = ipo.revenue_m
     margin0 = _base_margin(ipo)
     if mcap is None or revenue0 is None or revenue0 <= 0:
-        return {"available": False, "reason": "IPO price, post-issue share count and revenue are all required to reverse-solve implied growth."}
+        return {"available": False, "label": "INSUFFICIENT DATA",
+                "reason": "IPO price, post-issue share count and revenue are all required to reverse-solve implied growth.",
+                "missing_fields": missing_inputs(ipo, ("final_price|price_high", "post_issue_shares_m", "revenue_m"))}
     wacc = 0.11 if ipo.country.lower() != "india" else 0.13
     terminal_growth = 0.03 if ipo.country.lower() != "india" else 0.04
     assumed_margin_end = min(0.40, max(margin0 or 0.10, (margin0 or 0.10) + 0.05))

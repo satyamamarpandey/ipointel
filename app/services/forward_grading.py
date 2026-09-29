@@ -48,8 +48,10 @@ def classify_prediction(ipo: IPO, outcome: PredictionOutcome | None, today: date
     status = ipo.status or ""
     if status in ("Not IPO", "Withdrawn"):
         return INVALID_FORWARD_RECORD, f"issue is {status}: no listing outcome can exist"
-    if outcome_has_return(outcome):
+    if outcome is not None and (outcome.grading_status or "") == GRADED and outcome_has_return(outcome):
         return GRADED, "realized return attached"
+    if outcome_has_return(outcome):
+        return GRADED, "realized return attached (legacy row without grading status)"
     if status != "Listed":
         return NOT_YET_ELIGIBLE, f"status {status}: not listed yet"
     listing_dt = parse_date(ipo.listing_date)
@@ -84,6 +86,20 @@ def forward_ledger(db: Session, today: date | None = None) -> list[dict]:
                     "event_stage": s.event_stage, "created_at": s.created_at.isoformat() if s.created_at else None,
                     "category": cat, "reason": reason})
     return out
+
+
+GRADABLE_CATEGORIES = (GRADED, PENDING, BLOCKED_IDENTITY, BLOCKED_OFFER_PRICE, BLOCKED_MARKET_DATA)
+
+
+def public_ledger(db: Session, today: date | None = None) -> dict:
+    """Summary published with the track record: category counts, per-country
+    split, blocked reasons, and the two headline figures. `gradable` is every
+    prediction whose IPO has listed (GRADED + PENDING + BLOCKED_*);
+    `graded` counts only GRADED."""
+    counts = ledger_counts(forward_ledger(db, today))
+    by_cat = counts["by_category"]
+    return {"by_category": by_cat, "by_country": counts["by_country"], "blocked_reasons": counts["blocked_reasons"],
+            "gradable": sum(by_cat[c] for c in GRADABLE_CATEGORIES), "graded": by_cat[GRADED], "total": counts["total"]}
 
 
 def ledger_counts(ledger: list[dict]) -> dict:

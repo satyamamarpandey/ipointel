@@ -105,7 +105,7 @@ def test_report_row_without_symbol_updates_the_live_feed_row_not_a_duplicate(db)
     assert len(rows) == 1
     ipo = rows[0]
     assert ipo.external_key == "IN:kanohar"
-    assert ipo.status == "Listed" and ipo.listing_date == "2026-09-15 00:00:00" and ipo.isin == "INE0TEST0001"
+    assert ipo.status == "Listed" and ipo.listing_date == "2026-09-15" and ipo.isin == "INE0TEST0001"  # dates are stored canonical
     assert ipo.company == "Kanohar Electricals Limited"  # live-feed spelling kept
 
 

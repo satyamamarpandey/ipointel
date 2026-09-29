@@ -173,7 +173,23 @@ def _collect(db: Session, country: str) -> list[dict]:
         })
     return rows
 
-def evaluate(db: Session) -> dict:
+def _semantics(research: dict, target: str) -> dict:
+    """What the published number for this target may be called. SCORE until
+    the walk-forward release gate passes for this market and target."""
+    t = (research.get("targets") or {}).get(target) or {}
+    gate = t.get("release_gate") or {}
+    oos = t.get("out_of_sample") or {}
+    passed = bool(gate.get("passed"))
+    return {
+        "calibrated": passed, "label": "PROBABILITY" if passed else "SCORE",
+        "walk_forward_auc": oos.get("auc"), "walk_forward_n": oos.get("n"),
+        "release_gate": gate,
+        "reason": ("walk-forward model beats the base rate on AUC and Brier with stable folds" if passed else
+                   "walk-forward evaluation has not beaten the base rate; values are heuristic scores, not probabilities"),
+    }
+
+def evaluate(db: Session, include_research: bool = True) -> dict:
+    from . import model_eval  # local import: model_eval reuses this module's helpers
     out = {}
     for country in ("India", "United States"):
         rows = _collect(db, country)
@@ -181,5 +197,18 @@ def evaluate(db: Session) -> dict:
         listing_block["by_year"] = _by_year(rows, "listing_return")
         long_block = _model_block(rows, "long_term", "long_term_prob", "return_12m")
         long_block["by_year"] = _by_year(rows, "return_12m")
-        out[country] = {"total_listed_with_score": len(rows), "listing_model": listing_block, "long_term_model": long_block}
+        block = {"total_listed_with_score": len(rows), "listing_model": listing_block, "long_term_model": long_block}
+        if include_research:
+            research = model_eval.evaluate_market(model_eval.build_rows(db, country), country)
+            block["research"] = research
+            # The long-term label is judged on the benchmark-relative target when
+            # it has out-of-sample rows: a SPAC unit parked at trust value has a
+            # positive absolute 12m return while trailing the index.
+            rel = (research.get("targets") or {}).get("12m_relative") or {}
+            long_target = "12m_relative" if (rel.get("out_of_sample") or {}).get("n") else "12m"
+            block["probability_semantics"] = {"listing": _semantics(research, "listing"), "long_term": _semantics(research, long_target)}
+            block["probability_semantics"]["long_term"]["target"] = long_target
+            block["listing_model"]["calibrated"] = block["probability_semantics"]["listing"]["calibrated"]
+            block["long_term_model"]["calibrated"] = block["probability_semantics"]["long_term"]["calibrated"]
+        out[country] = block
     return out

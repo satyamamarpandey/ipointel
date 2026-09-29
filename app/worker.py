@@ -48,7 +48,21 @@ def run_once(cycle:int=0):
             refresh_market_performance(db)
             sync_prediction_outcomes(db)
             hb.beat(db,current_job="market_performance",last_performance_update_at=True)
-        if cycle%96==0: ingest_nse_history(db,max_reports=2)
+        if cycle%96==0:
+            ingest_nse_history(db,max_reports=2)
+            # Daily: official NSE masters for India symbols and the last two
+            # weeks of NSE bhavcopies (Tier-1 price bars). Never fatal.
+            try:
+                from .services.pipeline import resolve_india_symbols
+                from .services import nse_bhavcopy
+                from .models import IPO
+                from sqlalchemy import select
+                from datetime import date,timedelta
+                resolve_india_symbols(db)
+                isins={i for i in db.scalars(select(IPO.isin).where(IPO.country=="India",IPO.isin!="")).all()}
+                nse_bhavcopy.ingest_days(db,isins,date.today()-timedelta(days=14),date.today(),max_files=12)
+            except Exception as e:
+                logging.warning("daily india identity/bhavcopy pass failed: %s: %s",type(e).__name__,e)
         if cycle%96==0: queue_weekly_digests(db)
         send_pending(db)
         hb.beat(db,current_job="idle")

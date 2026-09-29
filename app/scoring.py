@@ -6,7 +6,10 @@ from typing import Optional
 from .models import IPO
 from .config import get_settings
 
-MODEL_VERSION = "v2.0-evidence-first"
+MODEL_VERSION = "v2.1-evidence-first"  # v2.1: confidence includes data freshness (Phase 17)
+# Active-issue data older than this is stale; confidence decays past it.
+FRESHNESS_GRACE_DAYS = 7
+FRESHNESS_MAX_PENALTY = 0.12
 FEATURE_SCHEMA_VERSION = "fs1"  # bump whenever the set/meaning of fields compute_score() reads changes
 
 FEATURE_FIELDS = [
@@ -106,6 +109,20 @@ def is_primary_source_url(url: str | None) -> bool:
         return False
     return any(host == h or host.endswith("." + h) for h in PRIMARY_SOURCE_HOSTS)
 
+def freshness_penalty(ipo: IPO, now=None) -> float:
+    """0 while an ACTIVE issue's record was refreshed within the grace window,
+    rising linearly to FRESHNESS_MAX_PENALTY at 60 days without an update.
+    Listed/terminal rows are historical facts, not stale: no penalty."""
+    if (ipo.status or "") not in ("Filed", "Upcoming", "Open", "Closed", "Priced") or not ipo.updated_at:
+        return 0.0
+    from datetime import datetime, timezone
+    now = now or datetime.now(timezone.utc)
+    upd = ipo.updated_at if ipo.updated_at.tzinfo else ipo.updated_at.replace(tzinfo=timezone.utc)
+    age = (now - upd).days
+    if age <= FRESHNESS_GRACE_DAYS:
+        return 0.0
+    return min(FRESHNESS_MAX_PENALTY, FRESHNESS_MAX_PENALTY * (age - FRESHNESS_GRACE_DAYS) / (60 - FRESHNESS_GRACE_DAYS))
+
 def confidence(ipo: IPO, conflicts: int = 0) -> float:
     fields=[
       ipo.price_high, ipo.revenue_m, ipo.revenue_prev_m, ipo.net_income_m, ipo.cfo_m,
@@ -116,7 +133,7 @@ def confidence(ipo: IPO, conflicts: int = 0) -> float:
     primary = 1.0 if is_primary_source_url(ipo.filing_url) else 0.72
     flag_pen=min(0.28, sum(1 for f in (ipo.data_flags or []) if not str(f).startswith("ipo_classification"))*0.035)
     conflict_pen=min(0.25, conflicts*0.08)
-    return clamp((0.68*complete+0.32*primary-flag_pen-conflict_pen)*100)
+    return clamp((0.68*complete+0.32*primary-flag_pen-conflict_pen-freshness_penalty(ipo))*100)
 
 def confidence_reasons(ipo: IPO, conflicts: int = 0) -> list[str]:
     """Plain-language reasons the confidence figure is what it is - read off
@@ -147,6 +164,8 @@ def confidence_reasons(ipo: IPO, conflicts: int = 0) -> list[str]:
         reasons.append("Lock-up terms not parsed from the filing")
     if ipo.market_regime is None:
         reasons.append("No market regime input (stale or missing market data)")
+    if freshness_penalty(ipo) > 0:
+        reasons.append(f"Record not refreshed for more than {FRESHNESS_GRACE_DAYS} days: source may be stale")
     if conflicts:
         reasons.append(f"{conflicts} field(s) conflict across sources")
     for f in (ipo.data_flags or []):
