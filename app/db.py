@@ -46,6 +46,7 @@ def _migrate_sqlite():
         },
         "ipos": {
             "isin": "VARCHAR(20) DEFAULT ''",
+            "market_data_status": "VARCHAR(30) DEFAULT ''", "market_data_checked_at": "DATETIME",
         },
         "prediction_outcomes": {
             "grading_status": "VARCHAR(40) DEFAULT ''", "grading_note": "TEXT DEFAULT ''", "graded_at": "DATETIME",

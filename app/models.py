@@ -165,6 +165,12 @@ class IPO(Base):
     allotment_url: Mapped[str] = mapped_column(Text, default="")
     raw: Mapped[dict] = mapped_column(JSON, default=dict)
     data_flags: Mapped[list] = mapped_column(JSON, default=list)
+    # Result of the last post-listing price-series attempt, so a symbol with
+    # no usable history (delisted SPAC, reassigned ticker) is recorded and
+    # retried on a schedule instead of re-fetched on every pass forever.
+    # "" = never attempted | ok | no_series | no_listing_bar | implausible
+    market_data_status: Mapped[str] = mapped_column(String(30), default="", index=True)
+    market_data_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     scores: Mapped[list["ScoreSnapshot"]] = relationship(back_populates="ipo", cascade="all, delete-orphan")
@@ -279,6 +285,39 @@ class PerformanceSnapshot(Base):
     source_name: Mapped[str] = mapped_column(String(100), default="")
     source_url: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+class FeatureObservation(Base):
+    """One point-in-time observation of one modeled feature for one IPO,
+    with the two timestamps a leakage-safe dataset needs: `period_end`
+    (what period the value describes) and `available_at` (the earliest date
+    the value could have been known publicly). A prediction made at time T
+    may only use observations with available_at <= T. The live IPO row keeps
+    the latest value for display; this table keeps every observation with
+    its provenance and is the ONLY input to historical model datasets.
+
+    `availability_rule` names how available_at was derived (e.g.
+    "prospectus_date": printed in the 424B4; "xbrl_post_ipo_comparative":
+    audited comparative in the first periodic report, assumed identical to
+    the prospectus figure; "nse_live_feed": observed live at observed_at)."""
+    __tablename__ = "feature_observations"
+    __table_args__ = (UniqueConstraint("ipo_id", "field_name", "period_end", "source_name", name="uq_feature_obs"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    ipo_id: Mapped[int] = mapped_column(ForeignKey("ipos.id"), index=True)
+    field_name: Mapped[str] = mapped_column(String(60), index=True)
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    unit: Mapped[str] = mapped_column(String(20), default="")  # USD_m | INR_m | pct | x | shares_m
+    source_name: Mapped[str] = mapped_column(String(100))
+    source_url: Mapped[str] = mapped_column(Text, default="")
+    source_tier: Mapped[int] = mapped_column(Integer, default=2)
+    source_form: Mapped[str] = mapped_column(String(20), default="")  # 10-K | 424B4 | RHP | NSE API ...
+    period_start: Mapped[str] = mapped_column(String(10), default="")  # YYYY-MM-DD
+    period_end: Mapped[str] = mapped_column(String(10), default="", index=True)
+    available_at: Mapped[str] = mapped_column(String(10), default="", index=True)  # YYYY-MM-DD
+    availability_rule: Mapped[str] = mapped_column(String(40), default="")
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    confidence: Mapped[float] = mapped_column(Float, default=1.0)
+    event_stage: Mapped[str] = mapped_column(String(40), default="")  # for event-time observations (subscription day 1/2/3)
+    raw: Mapped[dict] = mapped_column(JSON, default=dict)
 
 class IngestionRun(Base):
     __tablename__ = "ingestion_runs"
