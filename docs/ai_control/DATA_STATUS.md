@@ -1,43 +1,53 @@
 # DATA STATUS
 
-Updated 2026-09-29 from `measurements/latest.json`. Re-run `python scripts/measure_state.py` against the `data-state` snapshot to refresh.
+Updated 2026-09-29 07:19 UTC from `measurements/latest.json` (production snapshot after the Phase 2-11 backfills). Re-run `python scripts/measure_state.py` against the `data-state` snapshot to refresh.
 
-## Coverage
+## Coverage (before -> after this push)
 | Metric | India | US |
 |---|---|---|
-| Upcoming discovered / published | 56 / 56 | 181 / 180 (1 duplicate issuer excluded) |
-| Listed | 914 (872 in 5y window) | 1191 (1187 in window) |
-| Mainboard / SME | 395 / 519 | n/a |
-| Symbols resolved / missing | 414 / 500 | 1160 / 31 |
-| ISIN present on Listed | 912 | n/a |
-| Offer price present / missing | 912 / 2 | 1151 / 40 |
-| Performance snapshot present / missing | 320 / 594 | 808 / 383 |
-| Not IPO / Withdrawn | 1183 / 0 | 130 / 1 |
+| Upcoming discovered / published | 56 / 56 | 178 / 177 (1 duplicate issuer excluded) |
+| Listed | 912 (872 in 5y window) | 1184 (1180 in window) |
+| Mainboard / SME | 397 / 515 | n/a |
+| Symbols resolved | 414 -> **907** (5 unresolved) | 1160 -> 1158 (26 missing; rows reclassified Not IPO) |
+| Offer price present | 912 / 912 (1 corrected, 5 flagged suspect) | 1151 -> **1166** (18 missing: 14 direct listings have none by definition, 4 unparsed) |
+| Performance present | 320 -> **879 (96.4%)** | 808 -> **835 (70.5%)** |
+| Not IPO / Withdrawn | 1185 / 0 | 140 / 1 |
 
 ## Feature coverage, Listed rows
 | Field | India | US |
 |---|---|---|
-| identity (ISIN or symbol) | 99.8% | 97.4% |
-| offer price | 99.8% | 96.6% |
-| issue size | 99.8% | 0% |
+| identity (ISIN or symbol) | 100% | 97.8% |
+| offer price | 100% | 98.5% |
+| issue size | 100% | 0% |
 | issue structure (fresh/OFS) | 4.6% | 0% |
-| revenue / growth / EBITDA / PAT / cash flow / debt | 0% | 0% |
-| valuation inputs | 0% | 0% |
-| subscription (total / by category) | 0% / 0% | n/a |
-| performance | 35.0% | 67.8% |
+| revenue | 0% | 0% -> **33.6%** |
+| growth | 0% | 0% -> **22.4%** |
+| EBITDA | 0% | 0% -> **23.0%** |
+| PAT / net income | 0% | 0% -> **46.6%** |
+| cash flow | 0% | 0% -> **44.8%** |
+| debt | 0% | 0% -> 15.5% |
+| valuation inputs (peer set) | 0% | 0% |
+| subscription | 0% | n/a |
+| performance | 35.0% -> **96.4%** | 67.8% -> **70.5%** |
+
+US financials are post-IPO XBRL comparatives for fiscal years ending before listing (`availability_rule=xbrl_post_ipo_comparative`, Q-001 option A). SPACs (no revenue concept), pre-revenue issuers and non-USD filers stay null by design.
 
 ## Feature coverage, upcoming rows
-India (56): price band 98.2%, total subscription 89.3%, by-category 0%, issue size 0%. US (181): revenue 35.9%, PAT 43.1%, cash flow 40.9%, debt 19.9%, price band 0%.
+India (56): price band 98.2%, total subscription 91.1%, subscription by category 10.7% (captured live since today, timestamped, forward only). US (178): revenue 36%, PAT 43%, cash flow 41%, debt 20%.
 
-## Forward predictions
-849 total. GRADED 0, PENDING 8, BLOCKED_IDENTITY 4, BLOCKED_OFFER_PRICE 0, BLOCKED_MARKET_DATA 0, NOT_YET_ELIGIBLE 772, INVALID_FORWARD_RECORD 65.
-Root cause of zero graded: `sync_prediction_outcomes` scanned the 60 most recently updated Listed rows, which are the backfilled historical rows without forward snapshots (`no_forward_snapshot: 80`), so the 8 eligible rows were never reached.
+## Forward predictions (862)
+GRADED 11, PENDING 0, BLOCKED_IDENTITY 4, BLOCKED_MARKET_DATA 2, NOT_YET_ELIGIBLE 780, INVALID_FORWARD_RECORD 65. Previously 0 graded.
+Root cause of zero graded: the old grader scanned the 60 most recently updated Listed rows, which were backfilled historical rows without forward snapshots. Now ledger-driven.
 
-## Prospectus coverage
-US: 424B4 cover page parsed for every Listed row (price, symbol, IPO classification). No financial statement extraction yet. India: none.
+## Price sources
+- India: NSE daily bhavcopy (official, Tier 1), 1,253 trading days 2021-09-01 to 2026-09-28 ingested for 911 ISINs, pruned to the bars the return windows read (every return identical, tested). Yahoo has no history for NSE SME issues.
+- US: Yahoo Finance (Tier 3). 323 Listed rows have no Yahoo series (mostly delisted SPAC units and micro caps).
 
-## Source health (last run)
-SEC EDGAR ok, SEC Priced IPOs ok, NSE ok, NSE Primary Market Reports ok, SEC 424B4 backfill complete (window 2021-09-28 to 2025-10-23 plus daily since). Yahoo Finance is the only price source (Tier 3).
+## Known data defects (flagged, not guessed)
+- 5 India rows `offer_price_suspect`: NSE's Nov-2022 and Sep-2024 monthly reports misaligned rows (Fusion Micro Finance 81 vs real 368; Amiable Logistics 368 vs 81; Bikewo, Avi Ansh, Phoenix Overseas). Listing return suppressed; forward windows measured from listing close.
+- 1 India row corrected: Manoj Vaibhav Gems, report price 30, same row's size/shares gives 215, confirmed by the listing-day open 215.
+- 49 India rows `no_listing_bar`: 32 listed before 2021-09 (outside the bhavcopy window), the rest changed ISIN after a split so the pre-split bars were not collected (P2).
+- 5 India rows unresolved: Kalahridhaan Trendz, Ami Organics, Sahaj Fashions, Varanium Cloud, POWERGRID InvIT.
 
 ## Date formats
-India listing/open/close dates stored as `DD-Mon-YYYY` or `YYYY-MM-DD HH:MM:SS`; US as `YYYYMMDD`. Parsed correctly by `market.parse_date`, but lexical sorting is wrong. Normalisation is Phase 11.
+All stored dates are `YYYY-MM-DD` (3,443 rows normalised; raw kept in `raw`).

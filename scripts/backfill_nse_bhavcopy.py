@@ -44,6 +44,8 @@ def main() -> int:
         print(f"ISINs of interest: {len(isins)}")
         counts = nse_bhavcopy.ingest_days(db, isins, args.start, args.end, max_files=args.max_files)
         print(f"ingest: {counts}")
+        pruned = nse_bhavcopy.prune_bars(db, nse_bhavcopy.listing_dates_by_isin(db))
+        print(f"pruned {pruned} bars no return window reads")
         total = db.scalar(select(func.count()).select_from(PriceBar))
         covered = db.scalar(select(func.count(func.distinct(PriceBar.isin))))
         print(f"price_bars: {total} rows across {covered} ISINs")

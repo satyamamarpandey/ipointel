@@ -206,3 +206,65 @@ def bars_for_isin(db: Session, isin: str) -> list[dict]:
         ts = datetime.strptime(r.trade_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()
         out.append({"ts": ts, "open": r.open, "close": r.close, "trade_date": r.trade_date})
     return out
+
+
+# ------------------------------------------------------------------ pruning ----
+# market.windowed_returns reads: the listing session (first bar on or after the
+# listing date), the last bar on or before each window target, and the latest
+# bar. Everything else in a five-year daily series is dead weight, and the
+# production database travels as a single file on the data-state branch
+# (GitHub rejects files over 100 MB). prune_bars keeps exactly what the return
+# windows can read, with slack for holidays, so every computed return is
+# identical before and after pruning.
+LISTING_KEEP_DAYS = 21          # listing session plus the first weeks (7d window)
+WINDOW_TARGET_DAYS = (30, 90, 182, 365, 730)
+WINDOW_SLACK_DAYS = 12          # last bar on or before a target is within this many days
+RECENT_KEEP_DAYS = 20           # latest close and "since listing" return
+
+
+def keep_trade_date(d: date, listing: date | None, today: date) -> bool:
+    if d >= today - timedelta(days=RECENT_KEEP_DAYS):
+        return True
+    if listing is None:
+        return False
+    if listing <= d <= listing + timedelta(days=LISTING_KEEP_DAYS):
+        return True
+    return any(listing + timedelta(days=w - WINDOW_SLACK_DAYS) <= d <= listing + timedelta(days=w) for w in WINDOW_TARGET_DAYS)
+
+
+def prune_bars(db: Session, listing_by_isin: dict[str, date | None], today: date | None = None, vacuum: bool = True) -> int:
+    """Delete price bars no return window can read. `listing_by_isin` maps
+    ISIN -> listing date (None keeps only the recent bars). Returns the
+    number of rows deleted. Idempotent."""
+    from sqlalchemy import delete
+    today = today or datetime.now(timezone.utc).date()
+    deleted = 0
+    isins = [r for r in db.scalars(select(PriceBar.isin).distinct()).all()]
+    for isin in isins:
+        listing = listing_by_isin.get(isin)
+        rows = db.execute(select(PriceBar.id, PriceBar.trade_date).where(PriceBar.isin == isin)).all()
+        drop = [rid for rid, td in rows if not keep_trade_date(datetime.strptime(td, "%Y-%m-%d").date(), listing, today)]
+        for i in range(0, len(drop), 500):
+            db.execute(delete(PriceBar).where(PriceBar.id.in_(drop[i:i + 500])))
+        deleted += len(drop)
+    db.commit()
+    if vacuum and deleted and db.get_bind().dialect.name == "sqlite":
+        with db.get_bind().connect() as conn:
+            conn.exec_driver_sql("VACUUM")
+    return deleted
+
+
+def listing_dates_by_isin(db: Session) -> dict[str, date | None]:
+    """Earliest parseable listing date per India ISIN (IPO rows only)."""
+    from ..models import IPO
+    out: dict[str, date | None] = {}
+    for isin, ld in db.execute(select(IPO.isin, IPO.listing_date).where(IPO.country == "India", IPO.isin != "")).all():
+        d = None
+        try:
+            d = datetime.strptime((ld or "")[:10], "%Y-%m-%d").date()
+        except ValueError:
+            d = None
+        key = isin.upper()
+        if key not in out or (d is not None and (out[key] is None or d < out[key])):
+            out[key] = d
+    return out

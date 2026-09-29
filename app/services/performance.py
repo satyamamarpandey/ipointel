@@ -31,7 +31,58 @@ SOURCE_NAME = "Yahoo Finance fallback"
 NSE_SOURCE_NAME = "NSE bhavcopy"
 MIN_OFFICIAL_BARS = 2
 STATUS_OK, STATUS_NO_SERIES, STATUS_NO_LISTING_BAR, STATUS_IMPLAUSIBLE = "ok", "no_series", "no_listing_bar", "implausible"
-STATUSES = (STATUS_OK, STATUS_NO_SERIES, STATUS_NO_LISTING_BAR, STATUS_IMPLAUSIBLE)
+STATUS_OFFER_SUSPECT = "offer_price_suspect"
+# Listing-day open versus stored offer price. Outside these bounds the stored
+# offer price is far more likely a source error (NSE's monthly report has
+# misaligned rows) than a real listing. Pre-2025 SME issues did list at up to
+# about 5x, mainboard opens beyond 3x or below half the offer price are
+# essentially unheard of. A stored price that the same report row's issue size
+# / shares confirms is trusted whatever the ratio.
+OPEN_RATIO_MIN = 0.5
+OPEN_RATIO_MAX = {"SME": 5.5, "Mainboard": 3.0}
+IMPLIED_PRICE_TOLERANCE = 0.05
+
+
+def _norm_key(k: str) -> str:
+    return " ".join(str(k).replace("_", " ").split()).lower()
+
+
+def implied_offer_price(ipo: IPO) -> float | None:
+    """Offer price implied by the same NSE report row: issue size in crores
+    divided by total shares offered. None when either figure is missing."""
+    raw = {_norm_key(k): v for k, v in (ipo.raw or {}).items()}
+    def num(v):
+        try:
+            return float(str(v).replace(",", ""))
+        except (TypeError, ValueError):
+            return None
+    crores = next((num(v) for k, v in raw.items() if "issue size" in k and "crore" in k), None)
+    shares = num(raw.get("total issue size"))
+    if not crores or not shares:
+        return None
+    return crores * 1e7 / shares
+
+
+def offer_price_check(ipo: IPO, listing_open: float | None) -> tuple[str, float | None, str]:
+    """('ok'|'corrected'|'suspect', corrected_price, evidence). Only India rows
+    from the monthly report can be corrected, and only when the same row's
+    implied price agrees with the listing-day open within 5%."""
+    fp = ipo.final_price
+    if not fp or not listing_open or (ipo.country or "") != "India":
+        return "ok", None, ""
+    ratio = listing_open / fp
+    hi = OPEN_RATIO_MAX.get(ipo.board or "Mainboard", 3.0)
+    if OPEN_RATIO_MIN <= ratio <= hi:
+        return "ok", None, ""
+    implied = implied_offer_price(ipo)
+    if implied and abs(implied / fp - 1) <= IMPLIED_PRICE_TOLERANCE:
+        return "ok", None, ""  # the report row's own size / shares confirms the stored price
+    evidence = f"stored offer {fp:g}, listing-day open {listing_open:g} (ratio {ratio:.2f})"
+    if implied and abs(implied / listing_open - 1) <= IMPLIED_PRICE_TOLERANCE and OPEN_RATIO_MIN <= listing_open / implied <= hi:
+        return "corrected", round(implied, 2), evidence + f"; same report row implies {implied:.2f} (issue size / shares)"
+    return "suspect", None, evidence + (f"; implied {implied:.2f} does not confirm" if implied else "; no implied price in the report row")
+
+STATUSES = (STATUS_OK, STATUS_NO_SERIES, STATUS_NO_LISTING_BAR, STATUS_IMPLAUSIBLE, STATUS_OFFER_SUSPECT)
 POLITE_SLEEP_SECONDS = 0.25
 RETURN_FIELDS = ("listing_return_pct", "listing_open_return_pct", "return_7d_pct", "return_1m_pct", "return_90d_pct",
                  "return_6m_pct", "return_12m_pct", "return_24m_pct")
@@ -134,6 +185,24 @@ def refresh_one(db: Session, ipo: IPO, bench_cache: dict[str, dict], today: date
     wr = market.windowed_returns(bars, listing_dt, issue_price=ipo.final_price, splits=h.get("splits")) if listing_dt else {}
     if not wr:
         return _mark(ipo, STATUS_NO_LISTING_BAR, when)
+    verdict, corrected, evidence = offer_price_check(ipo, wr.get("listing_open"))
+    offer_status = STATUS_OK
+    if verdict == "corrected":
+        from .pipeline import add_provenance, _set_flag
+        raw = dict(ipo.raw or {}); raw.setdefault("final_price_as_reported", ipo.final_price); ipo.raw = raw
+        ipo.final_price = corrected
+        add_provenance(db, ipo, "final_price", corrected, "Derived: NSE report issue size / shares (listing-open confirmed)", h.get("url", ""), 1)
+        _set_flag(ipo, "offer_price_check", f"offer_price_check: corrected: {evidence}")
+        wr = market.windowed_returns(bars, listing_dt, issue_price=ipo.final_price, splits=h.get("splits"))
+    elif verdict == "suspect":
+        from .pipeline import _set_flag
+        _set_flag(ipo, "offer_price_check", f"offer_price_check: suspect: {evidence}")
+        # Forward windows measured from the listing close; no listing return
+        # is published against an offer price the evidence contradicts.
+        wr = market.windowed_returns(bars, listing_dt, issue_price=None, splits=None)
+        offer_status = STATUS_OFFER_SUSPECT
+        if not wr:
+            return _mark(ipo, STATUS_OFFER_SUSPECT, when)
     values = {f: wr.get(f) for f in RETURN_FIELDS}
     if all(v is None for v in values.values()):
         # Listed so recently that no window has elapsed and no listing return
@@ -163,7 +232,7 @@ def refresh_one(db: Session, ipo: IPO, bench_cache: dict[str, dict], today: date
         source_url=h.get("url", ""),
     )
     db.add(snap)
-    status = STATUS_IMPLAUSIBLE if wr.get("listing_return_note") else STATUS_OK
+    status = STATUS_IMPLAUSIBLE if wr.get("listing_return_note") else offer_status
     return _mark(ipo, status, when)
 
 
@@ -187,6 +256,10 @@ def select_candidates(db: Session, country: str | None, limit: int, retry_after_
         stmt = stmt.where(IPO.country == country)
     rows = db.scalars(stmt.order_by(IPO.updated_at.desc())).all()
     never = [r for r in rows if not (r.market_data_status or "")]
+    # Among never-attempted rows, those without any snapshot come first, so a
+    # bounded pass extends coverage before it refreshes legacy snapshots.
+    snapped = set(db.scalars(select(PerformanceSnapshot.ipo_id).distinct()).all())
+    never.sort(key=lambda r: r.id in snapped)
     stale_ok: list[IPO] = []
     if not only_missing:
         ok_rows = [r for r in rows if r.market_data_status == STATUS_OK]
@@ -194,7 +267,7 @@ def select_candidates(db: Session, country: str | None, limit: int, retry_after_
         cutoff = (today - timedelta(days=7)).isoformat()
         stale_ok = [r for r in ok_rows if (latest.get(r.id) or "") < cutoff]
     retry_cutoff = now() - timedelta(days=retry_after_days)
-    retry = [r for r in rows if r.market_data_status in (STATUS_NO_SERIES, STATUS_NO_LISTING_BAR, STATUS_IMPLAUSIBLE)
+    retry = [r for r in rows if r.market_data_status in (STATUS_NO_SERIES, STATUS_NO_LISTING_BAR, STATUS_IMPLAUSIBLE, STATUS_OFFER_SUSPECT)
              and (r.market_data_checked_at is None or _aware(r.market_data_checked_at) < retry_cutoff)]
     return (never + stale_ok + retry)[:limit]
 

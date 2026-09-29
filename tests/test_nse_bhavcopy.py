@@ -170,3 +170,57 @@ def test_forward_window_not_reported_from_stale_bar():
     bars.append({"ts": t0 + 7 * day, "open": 12.0, "close": 12.0})  # Thu 1st Oct: exactly 7 days
     wr = market.windowed_returns(bars, datetime(2026, 9, 24, tzinfo=timezone.utc), issue_price=10.0)
     assert wr["return_7d_pct"] == pytest.approx(20.0)
+
+
+def test_pruning_keeps_every_return_window_identical():
+    """prune_bars keeps only bars market.windowed_returns can read, so every
+    return computed from the pruned series equals the full-series value."""
+    from datetime import date, datetime, timedelta, timezone
+    from app.services import market
+    from app.services.nse_bhavcopy import keep_trade_date
+    listing = date(2023, 3, 15)
+    today = date(2026, 9, 29)
+    bars, d, px = [], listing, 100.0
+    while d <= today:
+        if d.weekday() < 5 and d.month != 12 or d.day > 5:  # weekdays with an irregular holiday gap in December
+            if d.weekday() < 5:
+                px *= 1.0007 if d.day % 3 else 0.9993
+                bars.append({"ts": datetime(d.year, d.month, d.day, tzinfo=timezone.utc).timestamp(), "open": px, "close": px, "d": d})
+        d += timedelta(days=1)
+    pruned = [b for b in bars if keep_trade_date(b["d"], listing, today)]
+    assert len(pruned) < len(bars) / 4
+    ldt = datetime(listing.year, listing.month, listing.day, tzinfo=timezone.utc)
+    full = market.windowed_returns(bars, ldt, issue_price=90.0)
+    cut = market.windowed_returns(pruned, ldt, issue_price=90.0)
+    for k in ("listing_return_pct", "return_7d_pct", "return_1m_pct", "return_90d_pct", "return_6m_pct", "return_12m_pct", "return_24m_pct", "latest_close", "return_since_listing_pct"):
+        assert full.get(k) == cut.get(k), k
+    assert keep_trade_date(date(2026, 9, 20), None, today) and not keep_trade_date(date(2024, 1, 1), None, today)
+
+
+def test_offer_price_contradicted_by_listing_open_is_suppressed_or_corrected(db, monkeypatch):
+    """NSE's monthly report has misaligned offer prices on a few rows. A
+    listing-day open far outside plausible bounds suppresses the listing
+    return; it is corrected only when the same report row's issue size /
+    shares confirms the open within 5%."""
+    monkeypatch.setattr(market, "fetch_yahoo_history", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no Yahoo")))
+    monkeypatch.setattr(market, "fetch_benchmark_history", lambda country: None)
+    # confirmed correction: report says 30, size 270.2 cr / 12,567,441 shares = 215, opens at 215
+    fixed = IPO(external_key="IN:mvgjl", company="Manoj Example Ltd", country="India", status="Listed", symbol="MVX", board="Mainboard",
+                isin="INE0MVX01011", listing_date="2026-07-01", final_price=30.0, currency="INR",
+                raw={"issue_size (in crores)": "270.2", "total_issue_size": "12567441"})
+    # unconfirmed: opens at 4.4x with no consistent implied price
+    bad = IPO(external_key="IN:fus", company="Fusion Example Ltd", country="India", status="Listed", symbol="FUX", board="Mainboard",
+              isin="INE0FUX01011", listing_date="2026-07-01", final_price=81.0, currency="INR",
+              raw={"issue_size (in crores)": "1103.99", "total_issue_size": "539200"})
+    db.add_all([fixed, bad])
+    db.commit()
+    _bars_rows(db, "INE0MVX01011", date(2026, 7, 1), [215.0] * 40, symbol="MVX", series="EQ")
+    _bars_rows(db, "INE0FUX01011", date(2026, 7, 1), [359.5] * 40, symbol="FUX", series="EQ")
+    assert performance.refresh_one(db, fixed, {}) == "ok"
+    assert fixed.final_price == pytest.approx(215.0, abs=0.01) and fixed.raw["final_price_as_reported"] == 30.0
+    assert any(str(f).startswith("offer_price_check: corrected") for f in fixed.data_flags)
+    assert performance.refresh_one(db, bad, {}) == "offer_price_suspect"
+    db.commit()
+    snap = db.query(PerformanceSnapshot).filter_by(ipo_id=bad.id).one()
+    assert snap.listing_return_pct is None and bad.final_price == 81.0
+    assert any(str(f).startswith("offer_price_check: suspect") for f in bad.data_flags)
