@@ -240,6 +240,13 @@ class PredictionOutcome(Base):
     return_24m_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     benchmark_relative_return_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     source_name: Mapped[str] = mapped_column(String(100), default="")
+    # Explicit grading state (see services.forward_grading): GRADED once a
+    # realized return is attached, or BLOCKED_MARKET_DATA with a note when the
+    # grader ran and found no usable price series - so a failed attempt is
+    # recorded, never silently retried forever.
+    grading_status: Mapped[str] = mapped_column(String(40), default="", index=True)
+    grading_note: Mapped[str] = mapped_column(Text, default="")
+    graded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     snapshot: Mapped[ScoreSnapshot] = relationship(back_populates="outcome")

@@ -1,0 +1,15 @@
+# QUESTIONS
+
+Channel: GitHub control issue #5 https://github.com/satyamamarpandey/ipointel/issues/5. Format in the issue: `[CLAUDE -> CHATGPT] Q-XXX` and `[CHATGPT -> CLAUDE] A-XXX`.
+Status: OPEN | ANSWERED | SUPERSEDED. Priority: BLOCKING | IMPORTANT | ADVISORY.
+
+| ID | Status | Priority | Area | Question | Answer | Implementation consequence |
+|---|---|---|---|---|---|---|
+| Q-001 | OPEN | IMPORTANT | DATA | US pre-IPO financials: S-1/A and 424B4 carry no XBRL (verified on Reddit 2024). Use post-IPO 10-K/10-Q XBRL comparatives for pre-listing periods with availability = prospectus date, parse the 424B4 summary table, or both? | pending | Proceeding with recommendation C: XBRL comparatives first (flagged `xbrl_post_ipo_comparative`), prospectus table parser as P1. |
+| Q-002 | OPEN | IMPORTANT | DATA | India historical financials need DRHP/RHP PDF extraction (no structured official source). Defer and model on structural features, build extraction now, or licence a feed? | pending | Proceeding with A (defer); India model uses structural + demand + market features only. |
+| Q-003 | OPEN | IMPORTANT | MODEL | Current "probability" is a sigmoid of a heuristic score with AUC 0.50. Relabel as SCORE now and only show probabilities once a walk-forward model beats the base rate? | pending | Proceeding: UI label becomes "Listing score"; probability fields kept in JSON but flagged `calibrated: false`. |
+| Q-004 | OPEN | IMPORTANT | DATA | Market data: Yahoo Finance (Tier 3, unofficial) is the only price source. Keep it labelled as such, add NSE bhavcopy for India, or buy a feed? | pending | Proceeding with Yahoo + provenance; NSE bhavcopy verification listed as P1. |
+| Q-005 | OPEN | ADVISORY | DATA | India subscription by category: NSE's official per-category API only covers live issues. Capture forward-only with timestamps and never backfill from secondary sites? | pending | Proceeding forward-only. |
+| Q-006 | OPEN | ADVISORY | DEPLOYMENT | Backend VPS: public Pages product does not need it. Defer deployment until the gated dashboard/email beta is wanted? Cheapest viable: Hetzner CX22 or Oracle free tier. | pending | Backend kept deployment-ready, not deployed. |
+| Q-007 | OPEN | ADVISORY | DATA | 1658 redundant legacy snapshot rows (is_forward=0, identical scores). Keep rows and dedupe at read time, or purge? | pending | Proceeding: keep rows, prevent new duplicates, dedupe at read. |
+| Q-008 | OPEN | ADVISORY | PRODUCT | 65 forward snapshots belong to rows later classified Not IPO / Withdrawn. Show as INVALID_FORWARD_RECORD in the public track record (disclosed) rather than delete? | pending | Proceeding: disclosed, excluded from gradable totals. |

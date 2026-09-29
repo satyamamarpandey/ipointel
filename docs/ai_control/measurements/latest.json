@@ -1,0 +1,699 @@
+{
+ "generated_at": "2026-09-29T04:32:37.629640+00:00",
+ "total_rows": 3656,
+ "india": {
+  "upcoming_discovered": 56,
+  "upcoming_published": 56,
+  "listed": 914,
+  "listed_published_5y": 872,
+  "symbols_resolved": 414,
+  "symbols_missing": 500,
+  "isin_present": 912,
+  "performance_present": 320,
+  "performance_missing": 594,
+  "final_price_present": 912,
+  "final_price_missing": 2,
+  "not_ipo": 1183,
+  "withdrawn": 0,
+  "status_counts": {
+   "Closed": 42,
+   "Listed": 914,
+   "Not IPO": 1183,
+   "Open": 12,
+   "Upcoming": 2
+  },
+  "feature_coverage": {
+   "upcoming": {
+    "n": 56,
+    "identity": {
+     "n": 56,
+     "pct": 100.0
+    },
+    "symbol": {
+     "n": 56,
+     "pct": 100.0
+    },
+    "offer_price": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "price_band": {
+     "n": 55,
+     "pct": 98.2
+    },
+    "revenue": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "growth": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "ebitda": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "pat": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "cash_flow": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "debt": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "valuation": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "issue_size": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "issue_structure": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "subscription": {
+     "n": 50,
+     "pct": 89.3
+    },
+    "subscription_by_category": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "performance": {
+     "n": 0,
+     "pct": 0.0
+    }
+   },
+   "listed": {
+    "n": 914,
+    "identity": {
+     "n": 912,
+     "pct": 99.8
+    },
+    "symbol": {
+     "n": 414,
+     "pct": 45.3
+    },
+    "offer_price": {
+     "n": 912,
+     "pct": 99.8
+    },
+    "price_band": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "revenue": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "growth": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "ebitda": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "pat": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "cash_flow": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "debt": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "valuation": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "issue_size": {
+     "n": 912,
+     "pct": 99.8
+    },
+    "issue_structure": {
+     "n": 42,
+     "pct": 4.6
+    },
+    "subscription": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "subscription_by_category": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "performance": {
+     "n": 320,
+     "pct": 35.0
+    }
+   },
+   "mainboard": {
+    "n": 395,
+    "identity": {
+     "n": 393,
+     "pct": 99.5
+    },
+    "symbol": {
+     "n": 297,
+     "pct": 75.2
+    },
+    "offer_price": {
+     "n": 393,
+     "pct": 99.5
+    },
+    "price_band": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "revenue": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "growth": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "ebitda": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "pat": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "cash_flow": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "debt": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "valuation": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "issue_size": {
+     "n": 393,
+     "pct": 99.5
+    },
+    "issue_structure": {
+     "n": 24,
+     "pct": 6.1
+    },
+    "subscription": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "subscription_by_category": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "performance": {
+     "n": 294,
+     "pct": 74.4
+    }
+   },
+   "sme": {
+    "n": 519,
+    "identity": {
+     "n": 519,
+     "pct": 100.0
+    },
+    "symbol": {
+     "n": 117,
+     "pct": 22.5
+    },
+    "offer_price": {
+     "n": 519,
+     "pct": 100.0
+    },
+    "price_band": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "revenue": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "growth": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "ebitda": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "pat": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "cash_flow": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "debt": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "valuation": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "issue_size": {
+     "n": 519,
+     "pct": 100.0
+    },
+    "issue_structure": {
+     "n": 18,
+     "pct": 3.5
+    },
+    "subscription": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "subscription_by_category": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "performance": {
+     "n": 26,
+     "pct": 5.0
+    }
+   }
+  },
+  "mainboard_listed": 395,
+  "sme_listed": 519
+ },
+ "us": {
+  "upcoming_discovered": 181,
+  "upcoming_published": 180,
+  "listed": 1191,
+  "listed_published_5y": 1187,
+  "symbols_resolved": 1160,
+  "symbols_missing": 31,
+  "isin_present": 0,
+  "performance_present": 808,
+  "performance_missing": 383,
+  "final_price_present": 1151,
+  "final_price_missing": 40,
+  "not_ipo": 130,
+  "withdrawn": 1,
+  "status_counts": {
+   "Filed": 181,
+   "Listed": 1191,
+   "Not IPO": 130,
+   "Withdrawn": 1
+  },
+  "feature_coverage": {
+   "upcoming": {
+    "n": 181,
+    "identity": {
+     "n": 1,
+     "pct": 0.6
+    },
+    "symbol": {
+     "n": 1,
+     "pct": 0.6
+    },
+    "offer_price": {
+     "n": 7,
+     "pct": 3.9
+    },
+    "price_band": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "revenue": {
+     "n": 65,
+     "pct": 35.9
+    },
+    "growth": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "ebitda": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "pat": {
+     "n": 78,
+     "pct": 43.1
+    },
+    "cash_flow": {
+     "n": 74,
+     "pct": 40.9
+    },
+    "debt": {
+     "n": 36,
+     "pct": 19.9
+    },
+    "valuation": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "issue_size": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "issue_structure": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "subscription": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "subscription_by_category": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "performance": {
+     "n": 0,
+     "pct": 0.0
+    }
+   },
+   "listed": {
+    "n": 1191,
+    "identity": {
+     "n": 1160,
+     "pct": 97.4
+    },
+    "symbol": {
+     "n": 1160,
+     "pct": 97.4
+    },
+    "offer_price": {
+     "n": 1151,
+     "pct": 96.6
+    },
+    "price_band": {
+     "n": 14,
+     "pct": 1.2
+    },
+    "revenue": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "growth": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "ebitda": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "pat": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "cash_flow": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "debt": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "valuation": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "issue_size": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "issue_structure": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "subscription": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "subscription_by_category": {
+     "n": 0,
+     "pct": 0.0
+    },
+    "performance": {
+     "n": 808,
+     "pct": 67.8
+    }
+   }
+  }
+ },
+ "forward": {
+  "total": 849,
+  "by_category": {
+   "GRADED": 0,
+   "PENDING": 8,
+   "BLOCKED_IDENTITY": 4,
+   "BLOCKED_OFFER_PRICE": 0,
+   "BLOCKED_MARKET_DATA": 0,
+   "NOT_YET_ELIGIBLE": 772,
+   "INVALID_FORWARD_RECORD": 65
+  },
+  "by_country": {
+   "India": {
+    "GRADED": 0,
+    "PENDING": 0,
+    "BLOCKED_IDENTITY": 0,
+    "BLOCKED_OFFER_PRICE": 0,
+    "BLOCKED_MARKET_DATA": 0,
+    "NOT_YET_ELIGIBLE": 568,
+    "INVALID_FORWARD_RECORD": 0
+   },
+   "United States": {
+    "GRADED": 0,
+    "PENDING": 8,
+    "BLOCKED_IDENTITY": 4,
+    "BLOCKED_OFFER_PRICE": 0,
+    "BLOCKED_MARKET_DATA": 0,
+    "NOT_YET_ELIGIBLE": 204,
+    "INVALID_FORWARD_RECORD": 65
+   }
+  },
+  "blocked_reasons": {
+   "NOT_YET_ELIGIBLE: status Closed: not listed yet": 468,
+   "NOT_YET_ELIGIBLE: status Filed: not listed yet": 204,
+   "NOT_YET_ELIGIBLE: status Open: not listed yet": 98,
+   "INVALID_FORWARD_RECORD: issue is Not IPO: no listing outcome can exist": 64,
+   "PENDING: eligible: awaiting grader": 8,
+   "BLOCKED_IDENTITY: listed but no exchange symbol resolved": 4,
+   "NOT_YET_ELIGIBLE: status Upcoming: not listed yet": 2,
+   "INVALID_FORWARD_RECORD: issue is Withdrawn: no listing outcome can exist": 1
+  },
+  "by_event_stage": {
+   "status_changed": 1,
+   "ipo_discovered": 213,
+   "subscription_update": 454,
+   "filing_amendment": 110,
+   "material_change": 70,
+   "recommendation_changed": 1
+  }
+ },
+ "snapshots": {
+  "total": 5983,
+  "ipos_with_snapshot": 3656,
+  "duplicate_groups": 136,
+  "duplicate_rows_beyond_first": 1658
+ },
+ "model": {
+  "India": {
+   "listed_with_score": 914,
+   "listing": {
+    "sample_size": 305,
+    "status": "evaluated",
+    "auc": 0.5,
+    "brier_score": 0.4793,
+    "log_loss": 1.2492,
+    "positive_rate_actual_pct": 71.1,
+    "avg_predicted_probability_pct": 18.8,
+    "calibration": [
+     {
+      "predicted_range": "0-20%",
+      "n": 305,
+      "avg_predicted_pct": 18.8,
+      "actual_positive_pct": 71.1
+     }
+    ],
+    "band_breakdown": [
+     {
+      "band": "90-100",
+      "n": 0
+     },
+     {
+      "band": "80-89",
+      "n": 0
+     },
+     {
+      "band": "70-79",
+      "n": 0
+     },
+     {
+      "band": "60-69",
+      "n": 0
+     },
+     {
+      "band": "50-59",
+      "n": 305,
+      "positive_pct": 71.1,
+      "mean_return_pct": 24.0,
+      "median_return_pct": 12.6,
+      "gt10pct_pct": 53.4,
+      "gt20pct_pct": 39.7,
+      "loss_pct": 28.9
+     },
+     {
+      "band": "<50",
+      "n": 0
+     }
+    ]
+   },
+   "long_term": {
+    "sample_size": 228,
+    "status": "evaluated",
+    "auc": 0.5,
+    "brier_score": 0.3312,
+    "positive_rate_actual_pct": 57.5,
+    "avg_predicted_probability_pct": 28.0
+   },
+   "score_distribution": {
+    "n": 956,
+    "listing_score_p10_p50_p90": [
+     50.9,
+     50.9,
+     50.9
+    ],
+    "confidence_p10_p50_p90": [
+     23.0,
+     23.0,
+     23.0
+    ],
+    "distinct_listing_scores": 2
+   }
+  },
+  "United States": {
+   "listed_with_score": 1191,
+   "listing": {
+    "sample_size": 720,
+    "status": "evaluated",
+    "auc": 0.501,
+    "brier_score": 0.3209,
+    "log_loss": 0.8539,
+    "positive_rate_actual_pct": 52.4,
+    "avg_predicted_probability_pct": 25.6,
+    "calibration": [
+     {
+      "predicted_range": "20-40%",
+      "n": 720,
+      "avg_predicted_pct": 25.6,
+      "actual_positive_pct": 52.4
+     }
+    ],
+    "band_breakdown": [
+     {
+      "band": "90-100",
+      "n": 0
+     },
+     {
+      "band": "80-89",
+      "n": 0
+     },
+     {
+      "band": "70-79",
+      "n": 0
+     },
+     {
+      "band": "60-69",
+      "n": 0
+     },
+     {
+      "band": "50-59",
+      "n": 720,
+      "positive_pct": 52.4,
+      "mean_return_pct": 11.2,
+      "median_return_pct": 0.1,
+      "gt10pct_pct": 25.7,
+      "gt20pct_pct": 18.1,
+      "loss_pct": 36.1
+     },
+     {
+      "band": "<50",
+      "n": 0
+     }
+    ]
+   },
+   "long_term": {
+    "sample_size": 513,
+    "status": "evaluated",
+    "auc": 0.502,
+    "brier_score": 0.2467,
+    "positive_rate_actual_pct": 39.2,
+    "avg_predicted_probability_pct": 30.0
+   },
+   "score_distribution": {
+    "n": 1216,
+    "listing_score_p10_p50_p90": [
+     54.4,
+     54.4,
+     54.4
+    ],
+    "confidence_p10_p50_p90": [
+     38.8,
+     38.8,
+     38.8
+    ],
+    "distinct_listing_scores": 4
+   }
+  }
+ },
+ "source_health": [
+  {
+   "source": "SEC EDGAR",
+   "status": "ok",
+   "last_run": "2026-09-28T21:02:21.258221",
+   "rows": 33
+  },
+  {
+   "source": "SEC Priced IPOs",
+   "status": "ok",
+   "last_run": "2026-09-28T21:02:42.193042",
+   "rows": 2
+  },
+  {
+   "source": "NSE",
+   "status": "ok",
+   "last_run": "2026-09-28T21:02:44.203397",
+   "rows": 14
+  },
+  {
+   "source": "NSE Primary Market Reports",
+   "status": "ok",
+   "last_run": "2026-09-28T14:08:01.095123",
+   "rows": 42
+  },
+  {
+   "source": "SEC 424B4 backfill",
+   "status": "ok",
+   "last_run": "2026-09-28T10:38:11.307510",
+   "rows": 0
+  }
+ ],
+ "publish": {
+  "upcoming": 236,
+  "history_5y": 2059,
+  "excluded": 1314,
+  "withdrawn": 1
+ }
+}

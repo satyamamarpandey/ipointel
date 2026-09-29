@@ -47,6 +47,9 @@ def _migrate_sqlite():
         "ipos": {
             "isin": "VARCHAR(20) DEFAULT ''",
         },
+        "prediction_outcomes": {
+            "grading_status": "VARCHAR(40) DEFAULT ''", "grading_note": "TEXT DEFAULT ''", "graded_at": "DATETIME",
+        },
         "score_snapshots": {
             # is_forward defaults to 0 for this migration deliberately: we have no positive
             # evidence pre-existing rows were genuinely forward predictions (vs backfilled),
