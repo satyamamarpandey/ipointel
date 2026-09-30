@@ -40,6 +40,7 @@ BHAVCOPY_MAX_FILES = 12
 FINANCIALS_DAILY_LIMIT = 40
 PRICE_REPAIR_DAILY_LIMIT = 15
 PROSPECTUS_DAILY_LIMIT = 40  # new US filings; the historical set is bulk-backfilled
+INDIA_RHP_DAILY_LIMIT = 8  # each NSE RHP archive is ~15 MB; the historical set is bulk-backfilled
 
 
 def main() -> int:
@@ -90,6 +91,12 @@ def main() -> int:
             except Exception as e:
                 db.rollback()
                 print(f"us prospectus financials failed: {type(e).__name__}: {e}")
+            try:
+                from scripts.backfill_india_rhp import run as backfill_india_rhp
+                print(f"india rhp financials: {backfill_india_rhp(db, limit=INDIA_RHP_DAILY_LIMIT, max_minutes=5, log=lambda _m: None)}")
+            except Exception as e:
+                db.rollback()
+                print(f"india rhp financials failed: {type(e).__name__}: {e}")
             try:
                 from app.services import market_regime
                 print(f"market regime: {market_regime.refresh(db)}")

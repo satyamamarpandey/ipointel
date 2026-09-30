@@ -85,3 +85,12 @@ def test_repair_price_bands_from_stored_payload(db):
     assert (ipo.price_low, ipo.price_high, ipo.final_price) == (78.0, 82.0, None)
     assert fixed.final_price == 95.0
     assert repair_nse_price_bands(db) == 0
+
+
+def test_fills_missing_open_date_but_keeps_existing_dates(db):
+    ipo = _ipo(db, open_date="")
+    s = apply_nse_past_issues(db, [_item()], today="2026-09-30")
+    assert ipo.open_date == "2026-08-27" and s["dates_filled"] == 1
+    kept = _ipo(db, external_key="IN:LUMINO2", open_date="2026-08-26")
+    apply_nse_past_issues(db, [_item()], today="2026-09-30")
+    assert kept.open_date == "2026-08-26"  # an existing date is never overwritten

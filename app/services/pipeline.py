@@ -129,6 +129,9 @@ def apply_nse_past_issues(db:Session,items:list[dict],today=None)->dict:
                 if raw.get(performance.PAST_ISSUE_PRICE_KEY)!=fp:raw[performance.PAST_ISSUE_PRICE_KEY]=fp;ipo.raw=raw
                 _set_flag(ipo,"offer_price_conflict:",f"{PAST_ISSUE_PRICE_CONFLICT_FLAG} says {fp:g}, stored {ipo.final_price:g}");stats["price_conflict"]+=1
                 if ipo.status=="Listed":conflicted.append(ipo)
+        for f in ("open_date","close_date"):
+            if it.get(f) and not getattr(ipo,f):
+                setattr(ipo,f,it[f]);add_provenance(db,ipo,f,it[f],PAST_ISSUES_SOURCE,nse.PAST_ISSUES_URL,1);stats["dates_filled"]=stats.get("dates_filled",0)+1
         ld=it.get("listing_date")
         if ld and not ipo.listing_date:
             ipo.listing_date=ld;add_provenance(db,ipo,"listing_date",ld,PAST_ISSUES_SOURCE,nse.PAST_ISSUES_URL,1);stats["listing_date_filled"]+=1;ipo.updated_at=now()
