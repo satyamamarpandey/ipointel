@@ -35,7 +35,7 @@ def test_annual_facts_selected_and_ordered_into_current_prev_2y():
     assert out["revenue_prev_m"]["value"] == 200.0
     assert out["revenue_2y_ago_m"]["value"] == 100.0
     assert out["revenue_m"]["period_end"] == "2023-12-31"
-    assert out["revenue_m"]["available_at"] == LISTING
+    assert out["revenue_m"]["available_at"] == out["revenue_m"]["filed"] != LISTING  # A-001: real publication date
     assert out["revenue_m"]["availability_rule"] == RULE_COMPARATIVE
     assert out["revenue_m"]["confidence"] < 1.0
 
@@ -122,7 +122,7 @@ def test_apply_observations_fills_only_missing_columns_and_records_provenance(db
     assert ipo.revenue_m == 999.0 and ipo.net_income_m == -40.0
     rows = db.query(FeatureObservation).filter_by(ipo_id=ipo.id).all()
     assert {x.field_name for x in rows} == {"revenue_m", "net_income_m"}
-    assert all(x.available_at == "2024-03-21" and x.source_name == SOURCE_NAME and x.source_tier == 1 for x in rows)
+    assert all(x.available_at == "2025-02-20" and x.source_name == SOURCE_NAME and x.source_tier == 1 for x in rows)
     prov = db.query(Provenance).filter_by(ipo_id=ipo.id, field_name="net_income_m").one()
     assert "post-IPO comparative" in prov.source_name
     # Re-applying is idempotent (unique key upsert).
@@ -130,3 +130,16 @@ def test_apply_observations_fills_only_missing_columns_and_records_provenance(db
     db.commit()
     assert r2["observations"] == 2 and r2["columns_filled"] == []
     assert db.query(FeatureObservation).filter_by(ipo_id=ipo.id).count() == 2
+
+
+def test_restore_publication_dates_resets_backdated_comparatives(db):
+    from app.services.xbrl_financials import restore_publication_dates
+    ipo = IPO(external_key="US:9", company="Beta", country="United States", status="Listed", listing_date="2024-03-21")
+    db.add(ipo)
+    db.flush()
+    db.add(FeatureObservation(ipo_id=ipo.id, field_name="revenue_m", value=1.0, source_name=SOURCE_NAME, period_end="2023-12-31",
+                              available_at="2024-03-21", availability_rule=RULE_COMPARATIVE, raw={"filed": "2025-02-20"}))
+    db.commit()
+    assert restore_publication_dates(db) == 1
+    assert restore_publication_dates(db) == 0
+    assert db.query(FeatureObservation).filter_by(ipo_id=ipo.id).one().available_at == "2025-02-20"

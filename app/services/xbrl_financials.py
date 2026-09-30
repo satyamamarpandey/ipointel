@@ -9,10 +9,13 @@ comparative columns restate the same pre-IPO fiscal years.
 This module reads those comparatives for fiscal periods that ENDED before
 the listing date and records each value as a FeatureObservation with:
   period_end       the fiscal period the value describes
-  available_at     the listing date, rule "xbrl_post_ipo_comparative": the
-                   same audited number was printed in the prospectus, so it
-                   was public by the listing day (Q-001 option A; restatement
-                   risk is why confidence is 0.85, not 1.0)
+  available_at     the filing date of the periodic report that published it,
+                   rule "xbrl_post_ipo_comparative". A-001: these values were
+                   published AFTER listing and may be restated or reclassified,
+                   so they are display and research data only and never enter
+                   a production model dataset (see model_eval.RESEARCH_ONLY_RULES).
+                   The prospectus parser (prospectus_financials) is the
+                   production source.
 Only the EARLIEST-filed fact per (concept, period_end) is used (the first
 periodic report; later reports may be restated), and only facts filed within
 18 months of listing, so a much later restatement can never leak in.
@@ -130,7 +133,8 @@ def _obs(fact: dict, listing: date, *, rule: str, confidence: float, available_a
         "source_form": fact.get("form", "") or "",
         "filed": fact["filed"],
         "accn": fact.get("accn", "") or "",
-        "available_at": (available_at or listing).isoformat(),
+        # Real publication date, never backdated to the listing (A-001).
+        "available_at": (available_at or _iso(fact["filed"]) or listing).isoformat(),
         "availability_rule": rule,
         "confidence": confidence,
         "concept": fact["_concept"],
@@ -196,6 +200,19 @@ def extract_pre_ipo_financials(facts: dict, listing_date: str) -> dict:
         ob["unit"] = "shares_m"
         out["post_issue_shares_m"] = ob
     return out
+
+
+def restore_publication_dates(db: Session) -> int:
+    """Idempotent repair (A-001): comparatives stored before the rule change
+    carried the listing date as available_at. Reset each to the filing date of
+    the report that published it. Returns rows changed."""
+    n = 0
+    for o in db.scalars(select(FeatureObservation).where(FeatureObservation.availability_rule == RULE_COMPARATIVE)).all():
+        filed = (o.raw or {}).get("filed")
+        if filed and len(filed) == 10 and o.available_at != filed:
+            o.available_at = filed
+            n += 1
+    return n
 
 
 def apply_observations(db: Session, ipo: IPO, obs: dict, source_url: str) -> dict:

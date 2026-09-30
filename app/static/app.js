@@ -338,15 +338,25 @@
     const one = (label, s) => `${label}: ${s.calibrated ? 'calibrated probability' : 'score, not a probability'}${s.walk_forward_auc != null ? ` (walk-forward AUC ${fmt(s.walk_forward_auc, 2)}, n ${s.walk_forward_n})` : ''}`;
     return `<p class="kicker">${esc(one('Listing output', ps.listing))}. ${esc(one('Long-term output', ps.long_term))}.</p>`;
   }
+  const TARGET_LABELS = { listing: 'Listing target', '12m': 'Long-term (12m) target', '12m_relative': 'Long-term (12m vs index) target' };
+  function gateLine(g) {
+    if (!g) return '';
+    const tier = g.passed ? 'production gate met' : (g.screening_passed ? 'screening gate met, production gate not met' : 'gate not met');
+    const prob = g.probability_allowed ? 'probability language allowed' : `probability language not allowed (${g.forward_graded || 0} of ${(g.thresholds && g.thresholds.probability && g.thresholds.probability.min_forward_graded) || 50} graded forward outcomes)`;
+    return `Research status: <b>${esc(tier)}</b>; ${esc(prob)}.`;
+  }
   function researchBlock(res) {
     if (!res || !res.targets) return '';
-    let h = '<h3>Walk-forward research (out of sample by listing year)</h3>';
-    h += `<p class="kicker">Ridge logistic on features available at or before listing, trained only on earlier years. Baselines are scored on the same test rows. Coverage: ${esc(Object.entries(res.feature_coverage_pct || {}).filter(([, v]) => v != null && v > 0).map(([k, v]) => `${k} ${v}%`).join(', ') || 'no features populated')}.</p>`;
+    let h = '<h3>RESEARCH: walk-forward evaluation (out of sample by listing year)</h3>';
+    h += `<p class="kicker">Research only, not used for the scores above. Ridge logistic on point-in-time features (prospectus figures, market regime before listing, issue structure), trained only on earlier years. Baselines are scored on the same test rows. Coverage: ${esc(Object.entries(res.feature_coverage_pct || {}).filter(([, v]) => v != null && v > 0).map(([k, v]) => `${k} ${v}%`).join(', ') || 'no features populated')}.</p>`;
+    const seg = res.segments && res.segments.operating_companies;
     for (const [target, t] of Object.entries(res.targets)) {
       const oos = t.out_of_sample || {};
-      if (!oos.n) { h += `<p class="muted">${esc(target)}: no out-of-sample predictions yet (insufficient training history).</p>`; continue; }
+      if (!oos.n) { h += `<p class="muted">${esc(TARGET_LABELS[target] || target)}: no out-of-sample predictions yet (insufficient training history).</p>`; continue; }
       const rows = [['Walk-forward model', oos]].concat(Object.entries(t.baselines || {}).map(([k, v]) => [k.replace(/_/g, ' '), v]));
-      h += `<p class="kicker">${esc(target === '12m' ? 'Long-term (12m) target' : 'Listing target')}: ${oos.n} out-of-sample rows, positive rate ${fmt(oos.positive_rate_pct, 1)}%. Release gate: <b>${t.release_gate && t.release_gate.passed ? 'passed' : 'not met'}</b>.</p>`;
+      const st = seg && seg.targets && seg.targets[target];
+      if (st && st.out_of_sample && st.out_of_sample.n) rows.push(['Operating companies only (no SPACs)', st.out_of_sample]);
+      h += `<p class="kicker">${esc(TARGET_LABELS[target] || target)}: ${oos.n} out-of-sample rows, positive rate ${fmt(oos.positive_rate_pct, 1)}%. ${gateLine(t.release_gate)}</p>`;
       h += `<div class="tablewrap"><table class="table"><thead><tr><th scope="col">Predictor</th><th scope="col">AUC</th><th scope="col">PR-AUC</th><th scope="col">Brier</th><th scope="col">Log loss</th></tr></thead><tbody>${rows.filter(([, v]) => v && v.n).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${fmt(v.auc, 3)}</td><td>${v.pr_auc == null ? 'n/a' : fmt(v.pr_auc, 3)}</td><td>${fmt(v.brier, 4)}</td><td>${fmt(v.log_loss, 4)}</td></tr>`).join('')}</tbody></table></div>`;
     }
     return h;

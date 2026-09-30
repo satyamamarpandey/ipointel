@@ -181,6 +181,40 @@ def filing_head(url:str,user_agent:str,max_bytes:int=1_500_000)->tuple[str,bool]
         text,truncated=_stream_head(c,url,max_bytes)
         return re.sub(r"<[^>]+>"," ",text),truncated
 
+_DOC_END=b"</DOCUMENT>"
+
+def filing_first_document(url:str,user_agent:str,max_bytes:int=12_000_000,sleep=time.sleep)->tuple[str,bool]:
+    """Raw (not tag-stripped) text of an EDGAR .txt submission up to the end
+    of its first <DOCUMENT> (the prospectus itself; exhibits and uuencoded
+    graphics follow). Returns (text, truncated): truncated when max_bytes
+    was hit first. Same pacing and backoff as every other SEC request."""
+    global _last_request_at
+    validate_outbound_url(url,allowed_hosts=_ALLOWED_HOSTS)
+    last_exc:Exception|None=None
+    with _client(user_agent) as c:
+        for attempt in range(_MAX_ATTEMPTS):
+            wait=_MIN_INTERVAL_SECONDS-(time.monotonic()-_last_request_at)
+            if wait>0:sleep(wait)
+            try:
+                _last_request_at=time.monotonic()
+                with c.stream("GET",url) as r:
+                    if r.status_code in _RETRY_STATUSES and attempt<_MAX_ATTEMPTS-1:
+                        sleep(_BACKOFF_BASE_SECONDS*(2**attempt));last_exc=httpx.HTTPStatusError(f"HTTP {r.status_code}",request=r.request,response=r);continue
+                    r.raise_for_status()
+                    buf=bytearray()
+                    for chunk in r.iter_bytes():
+                        start=max(0,len(buf)-len(_DOC_END))
+                        buf.extend(chunk)
+                        end=buf.find(_DOC_END,start)
+                        if end>=0:return _decode(bytes(buf[:end+len(_DOC_END)])),False
+                        if len(buf)>=max_bytes:return _decode(bytes(buf[:max_bytes])),True
+                    return _decode(bytes(buf)),False
+            except (httpx.TimeoutException,httpx.TransportError) as e:
+                last_exc=e
+                if attempt<_MAX_ATTEMPTS-1:sleep(_BACKOFF_BASE_SECONDS*(2**attempt))
+    assert last_exc is not None
+    raise last_exc
+
 def filing_text_head(url:str,user_agent:str,max_bytes:int=1_500_000)->str:
     return filing_head(url,user_agent,max_bytes)[0]
 
@@ -499,7 +533,7 @@ _RESALE_ONLY_PATTERNS=(
 )
 # A combined filing prints the resale prospectus first and the IPO prospectus
 # after it; these phrases on the resale cover mean a primary offering exists.
-_PRIMARY_OFFERING_HINTS=r"we are offering|shares offered by (?:us|the company)|(?:ipo|primary offering|initial public offering) prospectus|in (?:our|the) initial public offering"
+_PRIMARY_OFFERING_HINTS=r"\bwe are offering\b|shares offered by (?:us|the company)\b|(?:ipo|primary offering|initial public offering) prospectus|in (?:our|the) initial public offering"
 _DEBT_PATTERNS=(
     r"per note\s+total\s+public offering price\s*[0-9.]+\s*%",
     r"public offering price\s*(?:\(\d\)\s*)?[0-9]{2,3}\.[0-9]{1,3}\s*%",
@@ -521,7 +555,7 @@ SPIN_OFF="spin_off_distribution"
 _SPIN_OFF_PATTERNS=(
     r"in connection with the (?:planned |proposed )?distribution \(the [^)]{0,60}spin-off",
     r"will be distributed in the spin-off",
-    r"spin-off[^.]{0,200}record date",
+    r"spin-off[^.]{0,200}\brecord date\b",
 )
 
 def classify_offering_type(flat_text:str)->str:
@@ -535,7 +569,7 @@ def classify_offering_type(flat_text:str)->str:
     if any(re.search(p,cover) for p in _MERGER_PROXY_PATTERNS):return MERGER_PROXY
     if any(re.search(p,cover) for p in _DEBT_PATTERNS):return DEBT_OFFERING
     if any(re.search(p,cover) for p in _DIRECT_LISTING_PATTERNS):return DIRECT_LISTING
-    if any(re.search(p,cover) for p in _SPIN_OFF_PATTERNS) and not re.search(r"we are offering",cover):return SPIN_OFF
+    if any(re.search(p,cover) for p in _SPIN_OFF_PATTERNS) and not re.search(r"\bwe are offering\b",cover):return SPIN_OFF
     if any(re.search(p,cover) for p in _FOLLOW_ON_PATTERNS_V4):return "follow_on"
     base=classify_prospectus(flat_text)
     if base=="follow_on":return base

@@ -564,6 +564,8 @@ def refresh_market_performance(db:Session,limit=40):
 def refresh_all(db:Session):
     repair_company_names(db)
     repair_dates(db)
+    from . import xbrl_financials
+    xbrl_financials.restore_publication_dates(db)
     reconcile_lifecycle(db)
     runs=[ingest_sec(db),ingest_sec_priced(db),ingest_nse(db)]
     if get_settings().secondary_enrichment_url:runs.append(ingest_secondary_enrichment(db))

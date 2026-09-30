@@ -39,6 +39,7 @@ BHAVCOPY_MAX_FILES = 12
 # resumable and bounded; the daily pass moves the cursor a little each day.
 FINANCIALS_DAILY_LIMIT = 40
 PRICE_REPAIR_DAILY_LIMIT = 15
+PROSPECTUS_DAILY_LIMIT = 40  # new US filings; the historical set is bulk-backfilled
 
 
 def main() -> int:
@@ -82,6 +83,19 @@ def main() -> int:
                 print(f"us price repair: {repair_prices(db, limit=PRICE_REPAIR_DAILY_LIMIT)}")
             except Exception as e:
                 print(f"us price repair failed: {type(e).__name__}: {e}")
+            try:
+                from scripts.backfill_prospectus_financials import run as backfill_prospectus
+                print(f"us prospectus financials: {backfill_prospectus(db, limit=PROSPECTUS_DAILY_LIMIT, max_minutes=6, log=lambda _m: None)}")
+            except Exception as e:
+                db.rollback()
+                print(f"us prospectus financials failed: {type(e).__name__}: {e}")
+            try:
+                from app.services import market_regime
+                print(f"market regime: {market_regime.refresh(db)}")
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                print(f"market regime failed: {type(e).__name__}: {e}")
             try:
                 print(f"prediction outcomes: {sync_prediction_outcomes(db, limit=80)}")
             except Exception as e:

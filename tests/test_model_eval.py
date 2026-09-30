@@ -69,8 +69,9 @@ def test_pr_auc_and_ece_bounds():
 
 def test_features_for_only_uses_observations_available_before_listing():
     class Obs:
-        def __init__(self, value, period_end, available_at):
+        def __init__(self, value, period_end, available_at, availability_rule="prospectus_filing"):
             self.value, self.period_end, self.available_at = value, period_end, available_at
+            self.availability_rule = availability_rule
 
     class Ipo:
         id = 1; issue_size_m = 100.0; final_price = 10.0; fresh_issue_pct = None; ofs_pct = None

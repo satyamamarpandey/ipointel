@@ -183,11 +183,14 @@ def _semantics(research: dict, target: str) -> dict:
     gate = t.get("release_gate") or {}
     oos = t.get("out_of_sample") or {}
     passed = bool(gate.get("passed"))
+    # Probability language additionally needs calibration and 50+ graded
+    # forward outcomes (A-010). Older gate dicts without the tier fall back.
+    prob_ok = bool(gate.get("probability_allowed", passed))
     # The published numbers come from the heuristic in app/scoring.py, not from
     # the research model. A passing research gate therefore never relabels the
     # heuristic's output as a probability; only deploying the evaluated model
     # (DEPLOYED_RESEARCH_MODEL) could do that.
-    calibrated = passed and DEPLOYED_RESEARCH_MODEL
+    calibrated = passed and prob_ok and DEPLOYED_RESEARCH_MODEL
     if calibrated:
         reason = "the deployed walk-forward model beats the base rate on AUC and Brier with stable folds"
     elif passed:
@@ -204,6 +207,7 @@ def _semantics(research: dict, target: str) -> dict:
 def evaluate(db: Session, include_research: bool = True) -> dict:
     from . import model_eval  # local import: model_eval reuses this module's helpers
     out = {}
+    graded = model_eval.forward_graded_by_country(db) if include_research else {}
     for country in ("India", "United States"):
         rows = _collect(db, country)
         listing_block = _model_block(rows, "listing", "listing_prob", "listing_return")
@@ -212,7 +216,8 @@ def evaluate(db: Session, include_research: bool = True) -> dict:
         long_block["by_year"] = _by_year(rows, "return_12m")
         block = {"total_listed_with_score": len(rows), "listing_model": listing_block, "long_term_model": long_block}
         if include_research:
-            research = model_eval.evaluate_market(model_eval.build_rows(db, country), country)
+            research = model_eval.evaluate_market(model_eval.build_rows(db, country), country,
+                                              model_eval.DATASET_PRODUCTION, graded.get(country, 0))
             block["research"] = research
             # The long-term label is judged on the benchmark-relative target when
             # it has out-of-sample rows: a SPAC unit parked at trust value has a

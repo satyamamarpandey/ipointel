@@ -24,24 +24,53 @@ from statistics import mean
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from ..models import IPO, FeatureObservation
+from . import market_regime
 from .market import parse_date
 from .walkforward import _earliest_scores_by_ipo, _latest_perf_by_ipo, _auc, _brier, _log_loss
 
+import random
+
 MIN_TRAIN = 60
+# Screening gate (the original numeric gate): a research signal worth a look.
 MIN_TEST_TOTAL = 100
 GATE_AUC = 0.58
 GATE_FOLD_STABILITY = 0.6  # share of folds with AUC > 0.5
+# Production gate (A-010): required before a model may produce published output.
+PROD_MIN_N = 300
+PROD_AUC = 0.60                 # or a bootstrap 95% AUC interval entirely above 0.5
+PROD_FOLD_STABILITY = 0.7
+PROD_MIN_BRIER_GAIN = 0.02      # relative Brier improvement over the base-rate baseline
+PROD_MIN_SCORED_FOLDS = 3
+# A full market whose AUC exceeds its operating-company segment by more than
+# this is driven by segment composition (SPAC trust value), not skill (A-009).
+PROD_MAX_SEGMENT_AUC_GAP = 0.10
+# Probability language (A-003/A-010): production gate plus calibration plus live evidence.
+PROB_MAX_ECE = 0.05
+PROB_MIN_FORWARD_GRADED = 50
+BOOTSTRAP_ROUNDS = 200
+BOOTSTRAP_SEED = 7
+
+# Availability rules (A-001). Only values published on or before the listing
+# date may enter a production dataset. Unknown rules fail closed.
+RULE_PROSPECTUS = "prospectus_filing"
+POINT_IN_TIME_RULES = frozenset({RULE_PROSPECTUS, "nse_live_feed", "market_index_close"})
+# Published AFTER listing about pre-listing periods: display and research only.
+RESEARCH_ONLY_RULES = frozenset({"xbrl_post_ipo_comparative", "first_periodic_report"})
+DATASET_PRODUCTION = "production"
+DATASET_RESEARCH = "research_post_ipo_comparatives"
 _SPAC = re.compile(r"\bacquisition\b|\bblank check\b|\bspac\b", re.I)
 
 STRUCTURAL_FEATURES = ["log_issue_size", "log_offer_price", "fresh_issue_pct", "ofs_pct", "is_sme", "is_spac", "log_shares_offered"]
 FINANCIAL_FEATURES = ["log_revenue", "revenue_growth_pct", "net_margin_pct", "cfo_margin_pct"]
-ALL_FEATURES = STRUCTURAL_FEATURES + FINANCIAL_FEATURES
+REGIME_FEATURES = ["market_return_60d_pct", "market_vol_20d_pct", "ipo_count_90d"]
+ALL_FEATURES = STRUCTURAL_FEATURES + FINANCIAL_FEATURES + REGIME_FEATURES
 
 AVAILABILITY_RULES = {
     "structural": "properties of the issue printed in the prospectus/report before listing (size, price, structure, board)",
     "is_spac": "derived from the issuer name at ingestion",
-    "financial": "FeatureObservation rows with available_at <= listing_date only",
-    "market_regime": "benchmark index return over the 60 calendar days ending the day before listing (not yet in the dataset)",
+    "financial": "FeatureObservation rows with a point-in-time rule (prospectus_filing, nse_live_feed) and available_at <= listing_date only",
+    "research_only": "post-IPO XBRL comparatives (published after listing) are excluded from production datasets; the research dataset uses them under an explicit prospectus-equivalence assumption",
+    "market_regime": "benchmark index 60-day return and 20-day volatility from closes strictly before the listing date (market_regime.py), plus the count of same-market listings in the prior 90 days; the prediction time is the day before listing",
 }
 
 
@@ -71,21 +100,34 @@ def _financials_available(db: Session, ipo_ids: list[int]) -> dict[tuple[int, st
     return out
 
 
-def _latest_available(obs: list[FeatureObservation] | None, as_of: str) -> float | None:
-    """Latest period_end observation whose available_at <= as_of."""
+def _admissible(o, as_of: str, dataset: str) -> bool:
+    """Point-in-time admission of one observation for a prediction dated as_of."""
+    if o.value is None:
+        return False
+    rule = getattr(o, "availability_rule", "") or ""
+    if rule in POINT_IN_TIME_RULES:
+        return bool(o.available_at) and o.available_at <= as_of
+    if dataset == DATASET_RESEARCH and rule in RESEARCH_ONLY_RULES:
+        # Research only: assumes the comparative equals the prospectus figure.
+        return bool(o.period_end) and o.period_end <= as_of
+    return False
+
+
+def _latest_available(obs: list[FeatureObservation] | None, as_of: str, dataset: str = DATASET_PRODUCTION) -> float | None:
+    """Latest period_end observation admissible at as_of."""
     if not obs:
         return None
-    ok = [o for o in obs if o.available_at and o.available_at <= as_of and o.value is not None]
+    ok = [o for o in obs if _admissible(o, as_of, dataset)]
     if not ok:
         return None
-    return max(ok, key=lambda o: (o.period_end, o.available_at)).value
+    return max(ok, key=lambda o: (o.period_end, o.available_at or "")).value
 
 
-def features_for(ipo: IPO, fin: dict[tuple[int, str], list[FeatureObservation]], as_of: str) -> dict:
-    rev = _latest_available(fin.get((ipo.id, "revenue_m")), as_of)
-    rev_prev = _latest_available(fin.get((ipo.id, "revenue_prev_m")), as_of)
-    ni = _latest_available(fin.get((ipo.id, "net_income_m")), as_of)
-    cfo = _latest_available(fin.get((ipo.id, "cfo_m")), as_of)
+def features_for(ipo: IPO, fin: dict[tuple[int, str], list[FeatureObservation]], as_of: str, dataset: str = DATASET_PRODUCTION) -> dict:
+    rev = _latest_available(fin.get((ipo.id, "revenue_m")), as_of, dataset)
+    rev_prev = _latest_available(fin.get((ipo.id, "revenue_prev_m")), as_of, dataset)
+    ni = _latest_available(fin.get((ipo.id, "net_income_m")), as_of, dataset)
+    cfo = _latest_available(fin.get((ipo.id, "cfo_m")), as_of, dataset)
     return {
         "log_issue_size": _log(ipo.issue_size_m),
         "log_offer_price": _log(ipo.final_price),
@@ -98,6 +140,8 @@ def features_for(ipo: IPO, fin: dict[tuple[int, str], list[FeatureObservation]],
         "revenue_growth_pct": (rev / rev_prev - 1) * 100 if rev is not None and rev_prev else None,
         "net_margin_pct": ni / rev * 100 if ni is not None and rev else None,
         "cfo_margin_pct": cfo / rev * 100 if cfo is not None and rev else None,
+        "market_return_60d_pct": _latest_available(fin.get((ipo.id, "market_return_60d_pct")), as_of, dataset),
+        "market_vol_20d_pct": _latest_available(fin.get((ipo.id, "market_vol_20d_pct")), as_of, dataset),
     }
 
 
@@ -112,12 +156,13 @@ def _relative_target(pf) -> int | None:
     return None if rel is None else int(rel > 0)
 
 
-def build_rows(db: Session, country: str) -> list[Row]:
+def build_rows(db: Session, country: str, dataset: str = DATASET_PRODUCTION) -> list[Row]:
     ipos = db.scalars(select(IPO).where(IPO.country == country, IPO.status == "Listed")).all()
     ids = [i.id for i in ipos]
     perfs = _latest_perf_by_ipo(db, ids)
     scores = _earliest_scores_by_ipo(db, ids)
     fin = _financials_available(db, ids)
+    listed_dates = [d.date().isoformat() for d in (parse_date(i.listing_date) for i in ipos) if d is not None]
     rows = []
     for ipo in ipos:
         ld = parse_date(ipo.listing_date)
@@ -126,8 +171,10 @@ def build_rows(db: Session, country: str) -> list[Row]:
             continue
         as_of = ld.date().isoformat()
         sc = scores.get(ipo.id)
+        feats = {**features_for(ipo, fin, as_of, dataset),
+                 "ipo_count_90d": float(market_regime.trailing_ipo_count(listed_dates, as_of))}
         rows.append(Row(
-            ipo_id=ipo.id, country=country, listing_date=ld.date(), features=features_for(ipo, fin, as_of),
+            ipo_id=ipo.id, country=country, listing_date=ld.date(), features=feats,
             y_listing=None if pf.listing_return_pct is None else int(pf.listing_return_pct > 0),
             y_12m=None if pf.return_12m_pct is None else int(pf.return_12m_pct > 0),
             y_12m_relative=_relative_target(pf),
@@ -309,50 +356,155 @@ def walk_forward(rows: list[Row], feature_names: list[str], target: str, min_tra
     return res
 
 
-def release_gate(model: dict, base: dict, folds: list[dict]) -> dict:
+def _rank_auc(pairs: list[tuple[float, int]]) -> float | None:
+    """O(n log n) AUC via average ranks (ties share a rank)."""
+    npos = sum(y for _, y in pairs)
+    nneg = len(pairs) - npos
+    if npos == 0 or nneg == 0:
+        return None
+    order = sorted(range(len(pairs)), key=lambda k: pairs[k][0])
+    ranks = [0.0] * len(pairs)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and pairs[order[j + 1]][0] == pairs[order[i]][0]:
+            j += 1
+        for k in range(i, j + 1):
+            ranks[order[k]] = (i + j) / 2 + 1
+        i = j + 1
+    pos_rank_sum = sum(r for r, (_, y) in zip(ranks, pairs, strict=True) if y == 1)
+    return (pos_rank_sum - npos * (npos + 1) / 2) / (npos * nneg)
+
+
+def bootstrap_auc_ci(pairs: list[tuple[float, int]], rounds: int = BOOTSTRAP_ROUNDS, seed: int = BOOTSTRAP_SEED) -> tuple[float, float] | None:
+    """Percentile 95% interval of AUC over resamples of the out-of-sample rows."""
+    if len(pairs) < 20:
+        return None
+    rnd = random.Random(seed)
+    vals = []
+    for _ in range(rounds):
+        a = _rank_auc([pairs[rnd.randrange(len(pairs))] for _ in pairs])
+        if a is not None:
+            vals.append(a)
+    if len(vals) < rounds // 2:
+        return None
+    vals.sort()
+    return round(vals[int(0.025 * len(vals))], 3), round(vals[min(len(vals) - 1, int(0.975 * len(vals)))], 3)
+
+
+def release_gate(model: dict, base: dict, folds: list[dict], *, leakage_free: bool = True,
+                 auc_ci: tuple[float, float] | None = None, segment_stable: bool | None = None,
+                 forward_graded: int = 0) -> dict:
+    """Three tiers, per market and per target (A-003, A-010):
+    screening   the original numeric gate; a research signal worth watching.
+    production  may drive published output: no known leakage, n >= 300,
+                AUC >= 0.60 or a bootstrap interval above 0.5, Brier at least
+                2% below base rate, >= 70% stable folds, segment stability.
+    probability production plus ECE <= 0.05 plus >= 50 graded genuine
+                forward outcomes; only then may probability language appear.
+    `passed` is the production tier."""
     scored = [f for f in folds if f.get("auc") is not None]
     stable = (sum(1 for f in scored if f["auc"] > 0.5) / len(scored)) if scored else 0.0
-    checks = {
+    mb, bb = model.get("brier"), base.get("brier")
+    beats = mb is not None and bb is not None and mb < bb
+    gain = (bb - mb) / bb if beats and bb else 0.0
+    auc = model.get("auc") or 0
+    screening = {
         "sample_size_ok": model.get("n", 0) >= MIN_TEST_TOTAL,
-        "auc_ok": (model.get("auc") or 0) >= GATE_AUC,
-        "beats_base_rate_brier": model.get("brier") is not None and base.get("brier") is not None and model["brier"] < base["brier"],
+        "auc_ok": auc >= GATE_AUC,
+        "beats_base_rate_brier": beats,
         "fold_stability_ok": stable >= GATE_FOLD_STABILITY,
     }
-    return {"passed": all(checks.values()), "checks": checks, "fold_stability_share": round(stable, 2),
-            "thresholds": {"min_n": MIN_TEST_TOTAL, "min_auc": GATE_AUC, "min_fold_stability": GATE_FOLD_STABILITY}}
+    production = {
+        "no_known_leakage": bool(leakage_free),
+        "sample_size_ok": model.get("n", 0) >= PROD_MIN_N,
+        "discrimination_ok": auc >= PROD_AUC or (auc_ci is not None and auc_ci[0] > 0.5),
+        "brier_gain_ok": gain >= PROD_MIN_BRIER_GAIN,
+        "fold_stability_ok": stable >= PROD_FOLD_STABILITY and len(scored) >= PROD_MIN_SCORED_FOLDS,
+        "segment_stability_ok": segment_stable is not False,
+    }
+    production_passed = all(production.values())
+    ece = model.get("ece")
+    probability = {
+        "production_passed": production_passed,
+        "calibration_ok": ece is not None and ece <= PROB_MAX_ECE,
+        "forward_evidence_ok": forward_graded >= PROB_MIN_FORWARD_GRADED,
+    }
+    return {"passed": production_passed, "screening_passed": all(screening.values()),
+            "probability_allowed": all(probability.values()),
+            "checks": production, "screening_checks": screening, "probability_checks": probability,
+            "fold_stability_share": round(stable, 2), "brier_gain_pct": round(gain * 100, 2),
+            "auc_ci95": list(auc_ci) if auc_ci else None, "forward_graded": forward_graded,
+            "thresholds": {"screening": {"min_n": MIN_TEST_TOTAL, "min_auc": GATE_AUC, "min_fold_stability": GATE_FOLD_STABILITY},
+                           "production": {"min_n": PROD_MIN_N, "min_auc": PROD_AUC, "min_fold_stability": PROD_FOLD_STABILITY,
+                                          "min_scored_folds": PROD_MIN_SCORED_FOLDS, "max_segment_auc_gap": PROD_MAX_SEGMENT_AUC_GAP,
+                                          "min_brier_gain_pct": PROD_MIN_BRIER_GAIN * 100},
+                           "probability": {"max_ece": PROB_MAX_ECE, "min_forward_graded": PROB_MIN_FORWARD_GRADED}}}
 
 
-def evaluate_market(rows: list[Row], country: str) -> dict:
-    out = {"country": country, "rows": len(rows), "feature_coverage_pct": {}, "targets": {}}
+def segment_stable(full_auc: float | None, segment_auc: float | None) -> bool:
+    """The operating-company segment must carry signal on its own and the full
+    market must not look much stronger than it (SPAC composition effect)."""
+    if segment_auc is None or segment_auc <= 0.5:
+        return False
+    return full_auc is None or full_auc - segment_auc <= PROD_MAX_SEGMENT_AUC_GAP
+
+
+def _evaluate_target(rows: list[Row], target: str, *, leakage_free: bool, forward_graded: int,
+                     segment_auc: float | None = None, has_segment: bool = False, full_baselines: bool = True) -> dict:
+    wf = walk_forward(rows, ALL_FEATURES, target)
+    model, base = metrics(wf.model_pairs), metrics(wf.base_rate_pairs)
+    seg_ok = segment_stable(model.get("auc"), segment_auc) if has_segment else None
+    ci = bootstrap_auc_ci(wf.model_pairs)
+    baselines = {"base_rate": base}
+    if full_baselines:
+        baselines.update({"constant_50": metrics(wf.constant_pairs), "heuristic_v2": metrics(wf.heuristic_pairs)})
+    return {"usable_rows": sum(1 for r in rows if getattr(r, TARGET_ATTRS[target]) is not None),
+            "out_of_sample": {**model, "auc_ci95": list(ci) if ci else None}, "baselines": baselines, "folds": wf.folds,
+            "release_gate": release_gate(model, base, wf.folds, leakage_free=leakage_free, auc_ci=ci,
+                                         segment_stable=seg_ok, forward_graded=forward_graded)}
+
+
+TARGETS = ("listing", "12m", "12m_relative")
+
+
+def evaluate_market(rows: list[Row], country: str, dataset: str = DATASET_PRODUCTION, forward_graded: int = 0) -> dict:
+    leakage_free = dataset == DATASET_PRODUCTION
+    out = {"country": country, "dataset": dataset, "leakage_free": leakage_free, "rows": len(rows),
+           "feature_coverage_pct": {}, "targets": {}}
     for n in ALL_FEATURES:
         k = sum(1 for r in rows if r.features.get(n) is not None)
         out["feature_coverage_pct"][n] = round(k / len(rows) * 100, 1) if rows else None
-    for target in ("listing", "12m", "12m_relative"):
-        wf = walk_forward(rows, ALL_FEATURES, target)
-        model, base = metrics(wf.model_pairs), metrics(wf.base_rate_pairs)
-        out["targets"][target] = {
-            "usable_rows": sum(1 for r in rows if getattr(r, TARGET_ATTRS[target]) is not None),
-            "out_of_sample": model, "baselines": {"base_rate": base, "constant_50": metrics(wf.constant_pairs), "heuristic_v2": metrics(wf.heuristic_pairs)},
-            "folds": wf.folds, "release_gate": release_gate(model, base, wf.folds),
-        }
     # SPAC units hold near trust value, so in the US "positive 12m return"
     # largely means "is a SPAC". Operating companies are evaluated on their own
-    # so a structural signal is never mistaken for predictive skill.
+    # so a structural signal is never mistaken for predictive skill (A-009).
     operating = [r for r in rows if not r.features.get("is_spac")]
+    seg = None
     if 0 < len(operating) < len(rows):
-        seg = {"rows": len(operating), "targets": {}}
-        for target in ("listing", "12m", "12m_relative"):
-            wf = walk_forward(operating, ALL_FEATURES, target)
-            model, base = metrics(wf.model_pairs), metrics(wf.base_rate_pairs)
-            seg["targets"][target] = {"out_of_sample": model, "baselines": {"base_rate": base},
-                                      "folds": wf.folds, "release_gate": release_gate(model, base, wf.folds)}
+        seg = {"rows": len(operating), "targets": {t: _evaluate_target(operating, t, leakage_free=leakage_free,
+                                                                         forward_graded=forward_graded, full_baselines=False)
+                                                    for t in TARGETS}}
         out["segments"] = {"operating_companies": seg}
+    for target in TARGETS:
+        seg_auc = seg["targets"][target]["out_of_sample"].get("auc") if seg is not None else None
+        out["targets"][target] = _evaluate_target(rows, target, leakage_free=leakage_free, forward_graded=forward_graded,
+                                                  segment_auc=seg_auc, has_segment=seg is not None)
     return out
 
 
+def forward_graded_by_country(db: Session) -> dict[str, int]:
+    from .forward_grading import GRADED, forward_ledger, ledger_counts
+    by_country = ledger_counts(forward_ledger(db))["by_country"]
+    return {c: v.get(GRADED, 0) for c, v in by_country.items()}
+
+
 def evaluate(db: Session) -> dict:
+    graded = forward_graded_by_country(db)
     report = {"generated_at": datetime.now(timezone.utc).isoformat(), "availability_rules": AVAILABILITY_RULES,
-              "method": "walk-forward by listing year, ridge logistic (Newton), baselines on identical test rows", "markets": {}}
+              "method": "walk-forward by listing year, ridge logistic (Newton), baselines on identical test rows, bootstrap AUC interval",
+              "forward_graded": graded, "markets": {}, "research_only": {}}
     for country in ("India", "United States"):
-        report["markets"][country] = evaluate_market(build_rows(db, country), country)
+        report["markets"][country] = evaluate_market(build_rows(db, country), country, DATASET_PRODUCTION, graded.get(country, 0))
+        report["research_only"][country] = evaluate_market(build_rows(db, country, DATASET_RESEARCH), country,
+                                                           DATASET_RESEARCH, graded.get(country, 0))
     return report

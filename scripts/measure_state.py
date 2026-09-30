@@ -115,6 +115,8 @@ def main() -> int:
         report["snapshots"] = {"total": db.scalar(select(func.count()).select_from(ScoreSnapshot)),
                                "ipos_with_snapshot": db.scalar(select(func.count(func.distinct(ScoreSnapshot.ipo_id)))),
                                "duplicate_groups": len(dup), "duplicate_rows_beyond_first": sum(r[-1] - 1 for r in dup)}
+        from app.services import prospectus_financials
+        report["us_financial_sources"] = {"prospectus_vs_xbrl": prospectus_financials.agreement_with_xbrl(db)}
         model = walkforward.evaluate(db)
         report["model"] = {}
         for country in ("India", "United States"):
