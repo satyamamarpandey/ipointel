@@ -1,5 +1,7 @@
 """India RHP restated financials: header layouts, units, stubs, peer tables,
 point-in-time availability and the display-column fill."""
+import re
+
 from app.models import IPO, FeatureObservation, Provenance
 from app.services import rhp_financials as rf
 from app.services.model_eval import POINT_IN_TIME_RULES
@@ -59,19 +61,26 @@ Profit After Tax 2,110.79 1,131.71 463.08 385.49 694.29 652.27
 """
 
 
+def _doc(*pages):
+    """The pages plus a later page repeating their figures, as the MD&A of a
+    real RHP repeats the issuer's own numbers."""
+    figures = " ".join(re.findall(r"\d[\d,]*\.\d+", " ".join(pages)))
+    return [*pages, "Management discussion figures: " + figures]
+
+
 def _values(obs):
     return {k: (round(v["value"], 2), v["period_end"]) for k, v in obs.items()}
 
 
 def test_fiscal_labels_in_million():
-    obs, why = rf.extract(["cover page", FISCAL_MILLION], AVAILABLE)
+    obs, why = rf.extract(_doc("cover page", FISCAL_MILLION), AVAILABLE)
     assert why == "page 2"
     assert _values(obs) == {"revenue_m": (4448.78, "2026-03-31"), "revenue_prev_m": (3785.26, "2025-03-31"),
                             "revenue_2y_ago_m": (2748.1, "2024-03-31"), "net_income_m": (710.67, "2026-03-31")}
 
 
 def test_numeric_dates_note_numbers_and_lakhs():
-    obs, _ = rf.extract([NUMERIC_DATES_LAKHS], AVAILABLE)
+    obs, _ = rf.extract(_doc(NUMERIC_DATES_LAKHS), AVAILABLE)
     # Lakhs are converted to millions; the note reference "II.1" is not an amount.
     assert _values(obs)["revenue_m"] == (1007.58, "2026-03-31")
     assert _values(obs)["revenue_2y_ago_m"] == (745.38, "2024-03-31")
@@ -79,29 +88,44 @@ def test_numeric_dates_note_numbers_and_lakhs():
 
 
 def test_prose_dates_above_the_header_are_ignored():
-    obs, _ = rf.extract([PROSE_THEN_TABLE], AVAILABLE)
+    obs, _ = rf.extract(_doc(PROSE_THEN_TABLE), AVAILABLE)
     assert _values(obs)["revenue_m"] == (1170.87, "2026-03-31")
     assert _values(obs)["revenue_prev_m"] == (602.47, "2025-03-31")
 
 
 def test_stub_period_is_never_used_as_a_fiscal_year():
-    obs, _ = rf.extract([STUB_FIRST], AVAILABLE)
+    obs, _ = rf.extract(_doc(STUB_FIRST), AVAILABLE)
     assert _values(obs)["revenue_m"] == (1700.0, "2025-03-31")
     assert _values(obs)["net_income_m"] == (170.0, "2025-03-31")
 
 
 def test_peer_tables_are_rejected_and_the_next_page_is_used():
-    obs, why = rf.extract([PEER_CAPTION, PEER_SIDE_BY_SIDE], AVAILABLE)
+    obs, why = rf.extract(_doc(PEER_CAPTION, PEER_SIDE_BY_SIDE), AVAILABLE)
     assert obs == {} and "peer comparison" in why
-    obs, why = rf.extract([PEER_CAPTION, PEER_SIDE_BY_SIDE, FISCAL_MILLION], AVAILABLE)
+    obs, why = rf.extract(_doc(PEER_CAPTION, PEER_SIDE_BY_SIDE, FISCAL_MILLION), AVAILABLE)
     assert why == "page 3" and _values(obs)["revenue_m"] == (4448.78, "2026-03-31")
 
 
+def test_figures_found_on_no_other_page_are_rejected():
+    obs, why = rf.extract([FISCAL_MILLION, "unrelated text"], AVAILABLE)
+    assert obs == {} and "not found elsewhere" in why
+
+
+def test_part_year_column_between_fiscal_years_is_rejected():
+    split = """(Rs. in lakhs)
+Particulars November 30, 2025 March 31, 2025 March 31, 2024 December 20, 2023 March 31, 2023
+Revenue from Operations 3,687.50 3,563.67 599.66 1,700.70 1,674.68
+PAT 348.71 267.41 14.80 86.91 41.11
+"""
+    obs, why = rf.extract(_doc(split), AVAILABLE)
+    assert obs == {} and "part-year" in why
+
+
 def test_observations_are_point_in_time():
-    obs, _ = rf.extract([FISCAL_MILLION], AVAILABLE)
+    obs, _ = rf.extract(_doc(FISCAL_MILLION), AVAILABLE)
     assert {o["available_at"] for o in obs.values()} == {AVAILABLE}
     assert {o["availability_rule"] for o in obs.values()} <= POINT_IN_TIME_RULES
-    assert rf.extract([FISCAL_MILLION], "") == ({}, "no date to establish when the prospectus was public")
+    assert rf.extract(_doc(FISCAL_MILLION), "") == ({}, "no date to establish when the prospectus was public")
 
 
 def test_availability_date_prefers_open_then_close_then_day_before_listing():
@@ -117,9 +141,9 @@ def test_availability_date_prefers_open_then_close_then_day_before_listing():
 
 def test_missing_unit_or_header_yields_nothing():
     no_unit = FISCAL_MILLION.replace("(in Rs. million)\n", "")
-    assert rf.extract([no_unit], AVAILABLE)[0] == {}
+    assert rf.extract(_doc(no_unit), AVAILABLE)[0] == {}
     no_header = FISCAL_MILLION.replace("Particulars Fiscal 2026 Fiscal 2025 Fiscal 2024", "Particulars")
-    assert rf.extract([no_header], AVAILABLE)[0] == {}
+    assert rf.extract(_doc(no_header), AVAILABLE)[0] == {}
 
 
 def test_pick_pdf_prefers_the_rhp_over_the_general_information_document():
@@ -133,7 +157,7 @@ def test_apply_fills_only_empty_display_columns(db):
               net_income_m=700.0)
     db.add(ipo)
     db.flush()
-    obs, _ = rf.extract([FISCAL_MILLION], AVAILABLE)
+    obs, _ = rf.extract(_doc(FISCAL_MILLION), AVAILABLE)
     out = rf.apply_observations(db, ipo, obs, rf.RHP_URL.format(symbol="ACME"))
     db.commit()
     assert out["observations"] == 4

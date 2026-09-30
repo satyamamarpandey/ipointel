@@ -3,7 +3,7 @@ import httpx
 
 from app.models import IPO, FeatureObservation
 from scripts import backfill_india_rhp as br
-from tests.test_rhp_financials import FISCAL_MILLION
+from tests.test_rhp_financials import FISCAL_MILLION, _doc
 
 
 def _ipo(db, symbol, **kw):
@@ -21,7 +21,7 @@ def _not_found(symbol):
 
 def test_outcomes_flags_and_no_retry(db):
     parsed, empty, missing, broken = (_ipo(db, s) for s in ("GOOD", "EMPTY", "GONE", "BROKEN"))
-    pages = {"GOOD": [FISCAL_MILLION], "EMPTY": ["no tables here"]}
+    pages = {"GOOD": _doc(FISCAL_MILLION), "EMPTY": ["no tables here"]}
 
     def get_pages(symbol):
         if symbol == "GONE":

@@ -38,11 +38,14 @@ SCAN_PAGES = 220
 CONFIDENCE = 0.9
 
 _NUM = re.compile(r"\(?-?\d[\d,]*(?:\.\d+)?\)?")
-_REVENUE = re.compile(r"^\s*(?:[ivx]+\.?\s+|\d+\.?\s+)?(?:total\s+)?revenue\s+from\s+operations?\b", re.I)
+# Row numbering printed before a label: "IX.", "3", "G" or "(b)".
+_ROW_NO = r"^\s*(?:[ivx]+[.)]?\s+|\d+[.)]?\s+|[a-h][.)]?\s+|\([a-h]\)\s+)?"
+_REVENUE = re.compile(_ROW_NO + r"(?:total\s+)?revenue\s+from\s+operations?\b", re.I)
 _PROFIT = re.compile(
-    r"^\s*(?:[ivx]+\.?\s+|\d+\.?\s+)?(?:restated\s+)?(?:net\s+)?profit\s*/?\s*(?:\(loss\)\s*)?"
-    r"(?:after\s+tax|for\s+the\s+(?:year|period)(?:\s*/\s*(?:year|period))?)\b"
-    r"|^\s*(?:[ivx]+\.?\s+|\d+\.?\s+)?restated\s+(?:net\s+)?profit(?:\s*/\s*\(loss\))?(?:\s+after\s+tax)?(?:\s+for\s+the\s+(?:year|period))?\b", re.I)
+    _ROW_NO + r"(?:restated\s+)?(?:net\s+)?profit\s*/?\s*(?:\(loss\)\s*)?"
+    r"(?:\(?after\s+tax\)?|for\s+the\s+(?:year|period)(?:\s*/\s*(?:year|period))?)\b"
+    r"|" + _ROW_NO + r"restated\s+(?:net\s+)?profit(?:\s*/\s*\(loss\))?(?:\s+after\s+tax)?(?:\s+for\s+the\s+(?:year|period))?\b"
+    r"|" + _ROW_NO + r"pat\b(?:\s*\([^)]{0,12}\))?", re.I)
 _EXCLUDE = re.compile(r"segment|%|margin|per\s+share|from\s+(?:india|government|non)|share\s+of|before", re.I)
 _UNIT = (
     (re.compile(r"(?:₹|rs\.?|inr)\s*(?:in\s+)?crores?|in\s+(?:₹\s*)?crores?", re.I), 10.0),
@@ -173,7 +176,8 @@ def _labels(page: str, first_row: str, n_values: int | None = None) -> list[Colu
     if n_values is not None and len(found) != n_values:
         cap = _CAPTION_YEAR_END.search(block)
         years = _header_years(block)
-        if cap and len(years) == n_values:
+        distinct_desc = all(a > b for a, b in zip(years, years[1:], strict=False))  # "June 30, 2025* 2025 2024" is a stub plus years
+        if cap and len(years) == n_values and distinct_desc:
             md = (_month_index(cap.group("month")), int(cap.group("day")))
             return [ColumnLabel(y, md) for y in years]
     return found
@@ -213,20 +217,33 @@ def _period_end(c: ColumnLabel) -> str:
 
 MAX_CANDIDATE_PAGES = 10
 _PEER_PAGE = re.compile(r"comparison\s+(?:of\s+\S+\s+)?(?:\S+\s+){0,4}with\s+(?:our\s+)?(?:listed\s+)?(?:industry\s+)?peers|peer\s+(?:group\s+)?(?:financial\s+)?(?:kpis?|comparison)", re.I)
+_AMOUNT_TOKEN = re.compile(r"(?<![\d.])\d[\d,]*(?:\.\d+)?")
+_YEAR_TOKEN = re.compile(r"(?:19|20)\d{2}")
+# "Peer Review Board" is the auditors' certification body, not a peer company.
+_PEER_WORD = re.compile(r"(?<![a-z])peers?(?![a-z])(?!\s*rev\s*iew)", re.I)
 _OTHER_COMPANY_CAPTION = re.compile(r"\s*for\s+(?!the\b)[A-Z][\w&.\- ]{2,80}\b(?:ltd|limited)\b", re.I)
+
+
+def _rows(tx: str) -> tuple[str | None, str | None]:
+    """The first revenue row and first profit row on a page that carry at
+    least two amounts."""
+    rev = prof = None
+    for ln in tx.splitlines():
+        if rev is None and _REVENUE.match(ln) and not _EXCLUDE.search(ln[:80]) and len(_row_values(ln)) >= 2:
+            rev = ln
+        elif prof is None and _PROFIT.match(ln) and not _EXCLUDE.search(ln[:60]) and len(_row_values(ln)) >= 2:
+            prof = ln
+    return rev, prof
 
 
 def _summary_pages(pages: list[str]):
     """(page index, revenue line, profit line) for each page with both rows,
     in page order, up to MAX_CANDIDATE_PAGES."""
     found = 0
-    for i, tx in enumerate(pages):
-        rev = prof = None
-        for ln in tx.splitlines():
-            if rev is None and _REVENUE.match(ln) and not _EXCLUDE.search(ln[:80]) and len(_row_values(ln)) >= 2:
-                rev = ln
-            elif prof is None and _PROFIT.match(ln) and not _EXCLUDE.search(ln[:60]) and len(_row_values(ln)) >= 2:
-                prof = ln
+    rows = [_rows(tx) for tx in pages]
+    for i, (rev, prof) in enumerate(rows):
+        if rev and not prof and i + 1 < len(rows) and rows[i + 1][1] and not rows[i + 1][0]:
+            prof = rows[i + 1][1]  # the statement continues on the next page; the header stays on this one
         if rev and prof:
             yield i, rev, prof
             found += 1
@@ -261,8 +278,11 @@ def extract(pages: list[str], available: str) -> tuple[dict, str]:
     if not available:
         return {}, "no date to establish when the prospectus was public"
     first_reason = None
+    tokens: list[set[str]] = []
     for hit in _summary_pages(pages):
-        obs, reason = _extract_page(pages, hit, available)
+        if not tokens:
+            tokens = [_amount_tokens(tx) for tx in pages]
+        obs, reason = _extract_page(pages, hit, available, tokens)
         if obs:
             return obs, reason
         first_reason = first_reason or reason
@@ -276,10 +296,27 @@ def _is_peer_table(page: str, rev_line: str) -> bool:
         return True
     lines = page.splitlines()
     k = lines.index(rev_line)
-    return any(_OTHER_COMPANY_CAPTION.match(ln) for ln in lines[max(0, k - HEADER_MAX_LINES):k])
+    header = lines[max(0, k - HEADER_MAX_LINES):k]
+    return any(_OTHER_COMPANY_CAPTION.match(ln) or _PEER_WORD.search(ln) for ln in header)
 
 
-def _extract_page(pages: list[str], hit: tuple[int, str, str], available: str) -> tuple[dict, str]:
+def _amount_tokens(text: str) -> set[str]:
+    """Printed amounts with at least four digits, commas removed."""
+    return {t for t in (m.replace(",", "") for m in _AMOUNT_TOKEN.findall(text))
+            if len(t.replace(".", "")) >= 4 and not _YEAR_TOKEN.fullmatch(t)}
+
+
+def _corroborated(tokens: list[set[str]], i: int, rev_line: str, prof_line: str) -> bool:
+    """The issuer's own figures recur across an RHP (summary, KPIs, restated
+    statements, MD&A). A table whose revenue and profit figures appear on no
+    other page is usually a peer's or a subsidiary's."""
+    rev, prof = _amount_tokens(rev_line), _amount_tokens(prof_line)
+    others = [t for k, t in enumerate(tokens) if k != i]
+    return any(rev & t for t in others) and any(prof & t for t in others)
+
+
+def _extract_page(pages: list[str], hit: tuple[int, str, str], available: str,
+                  tokens: list[set[str]] | None = None) -> tuple[dict, str]:
     i, rev_line, prof_line = hit
     page = pages[i]
     if _is_peer_table(page, rev_line):
@@ -302,12 +339,19 @@ def _extract_page(pages: list[str], hit: tuple[int, str, str], available: str) -
     if len(rev) != len(labels) or len(prof) != len(labels):
         return {}, f"page {i + 1}: {len(labels)} columns but {len(rev)} revenue / {len(prof)} profit values"
     mask = _annual_mask(labels, page)
+    annual_at = [k for k, m in enumerate(mask) if m]
+    if annual_at and not all(mask[annual_at[0]:annual_at[-1] + 1]):
+        # A part-year column between two fiscal years (a conversion or merger
+        # split) makes the neighbouring year partial too.
+        return {}, f"page {i + 1}: part-year column between fiscal years"
     annual = sorted([(labels[k], rev[k], prof[k]) for k in range(len(labels)) if mask[k]], key=lambda t: -t[0].year)
     if not annual:
         return {}, f"page {i + 1}: no full fiscal-year column"
     if len({_period_end(c) for c, _, _ in annual}) != len(annual):
         # The same year twice means several companies side by side (a peer table).
         return {}, f"page {i + 1}: repeated fiscal years (peer comparison table)"
+    if tokens is not None and not _corroborated(tokens, i, rev_line, prof_line):
+        return {}, f"page {i + 1}: figures not found elsewhere in the RHP"
 
     def ob(c: ColumnLabel, v: float, concept: str) -> dict:
         return {"value": round(v * mult, 4), "period_end": _period_end(c), "available_at": available,
