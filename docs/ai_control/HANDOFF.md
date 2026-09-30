@@ -16,8 +16,13 @@ Enough for another agent to resume without terminal memory.
 4. Never modify a `ScoreSnapshot` row (ORM raises). Outcomes go in `PredictionOutcome`.
 5. Zero user-visible em dashes; `scripts/build_pages.py` scans for them.
 
+## Data merges into production
+Pages runs rewrite `data-state` every 3h. After a local bulk job, either re-run the job's steps against a fresh `git show origin/data-state:data/ipo.db` copy (`DATABASE_URL=sqlite:///<copy>`), or merge rows with ATTACH + INSERT OR IGNORE. Then push a single orphan commit with `--force-with-lease` against the data-state SHA you started from.
+- `scripts/backfill_prospectus_financials.py --cache-dir <dir> --reparse` re-parses cached prospectuses without downloading again (local only).
+
 ## Key modules
 - `app/services/pipeline.py` ingestion + upsert + snapshot events; `identity.py` names/lifecycle; `sec.py`, `nse.py` sources; `market.py` Yahoo prices and return windows; `outcomes.py` grader; `forward_grading.py` grading categories; `walkforward.py` evaluation; `app/scoring.py` heuristic model.
+- `prospectus_financials.py` US point-in-time financials; `market_regime.py` regime features; `model_eval.py` datasets, walk-forward, three-tier gate; `nse_master.py` masters incl. live-issue listings; `nse_bhavcopy.py` official bars.
 - `scripts/build_pages.py` static build and exclusion ledger; `scripts/backfill_us_priced.py` historical 424B4 backfill.
 
 ## Memory of non-obvious rules

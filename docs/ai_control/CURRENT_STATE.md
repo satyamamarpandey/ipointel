@@ -1,31 +1,28 @@
 # CURRENT STATE
 
-Updated: 2026-09-29 (UTC). Keep this file short; details live in the sibling files.
+Updated: 2026-09-30 (UTC). Keep this file short; details live in the sibling files.
 
-- **Current SHA:** see `git log -1` on master (updated at each push; last recorded below).
+- **Current SHA:** see `git log -1` on master (last recorded push 5449d69; data-state 869320e).
 - **Production:** https://ipointel.brandsap.com, static GitHub Pages built by `.github/workflows/pages.yml` every 3h (full pass daily 06:17 UTC). Pipeline status LIVE.
-- **Backend:** deployable (compose + Caddy + Postgres), NOT deployed. `api.ipointel.brandsap.com` has no DNS record.
-- **Phase:** 2-26 implemented, backfilled, deployed and verified live (build 0a3ebe9, static QA 114 checks / 0 errors). RC-001 posted. Open: Q-001..Q-010 answers; P0 predictive credibility.
+- **Backend:** deployable and tested, NOT deployed (A-006: deferred until a feature needs server-side state).
+- **Phase:** ChatGPT answers A-001..A-010 applied. Priority 1 (US prospectus parser) and priority 2 (market regime) done and backfilled. Priority 4 (forward grading) unblocked for India. RC-002 posted.
 
 ## Working
-- Ingestion: SEC EDGAR S-1/F-1, SEC 424B4 daily index, NSE live issues (now with per-category subscription, timestamped FeatureObservation rows), NSE monthly reports, NSE equity/SME masters (symbols), NSE daily bhavcopy (Tier-1 price bars), SEC XBRL companyfacts (pre-IPO financials with availability dates).
-- Lifecycle machine, Not-IPO classification (now also report-artifact rows, follow-on/resale/debt/merger 424B4s), exclusion ledger, last-known-good DB on `data-state`.
-- Forward grader with seven explicit categories; every prediction lands in one. Track record JSON carries the ledger.
-- Dates canonical `YYYY-MM-DD` in storage (raw kept in `raw`).
-- Model outputs labelled SCORE; `probability_semantics` per market/target flips only when `model_eval.release_gate` passes. Confidence includes freshness.
+- Ingestion: SEC EDGAR, SEC 424B4 index, NSE live issues (band parsed correctly), NSE past issues (official final price and listing date), NSE monthly reports, NSE equity/SME masters (symbols, ISIN, listing date of live issues), NSE daily bhavcopy (Tier-1 bars, re-read for newly learned ISINs), SEC prospectus summary tables (point-in-time financials), SEC XBRL (display/research only), index closes for market regime.
+- Forward grader reads official NSE bars first; 395 graded predictions over 35 IPOs.
+- Three-tier release gate; SCORE labels everywhere; research table on the model page marked RESEARCH.
 
 ## Broken or weak
-- India: 5 Listed rows unresolved (Kalahridhaan Trendz, Ami Organics, Sahaj Fashions, Varanium Cloud, POWERGRID InvIT).
-- US: 4 Listed rows with unparseable offer price (MIRA, Telomir: resale prospectus stored; Hamco: $0.25 below plausibility floor; Youxin). 14 direct listings have no offer price by definition.
-- Financial features on US Listed rows depend on the first 10-K (Q-001 option A): SPACs, pre-revenue and non-USD filers stay null. India historical financials: none (Q-002).
-- Walk-forward research: no full market passes on honest targets; US operating companies (no SPACs) pass narrowly, not deployed (Q-010).
-- Yahoo is still the only US price source (Tier 3).
+- India historical financials: none (DRHP/RHP parser is priority 3, required before India is production-ready, A-002).
+- US: 199 non-SPAC prospectuses yielded no annual USD table (foreign-currency filers without a US$ column, unusual layouts). 349 US Listed rows lack a free price series.
+- India listing model is just short of the production tier (Brier gain 1.6% vs 2%). US operating-company listing passes production but is not deployed (Q-011).
+- Long-term targets: discrimination without calibration in every market.
 
 ## Active task
-Awaiting ChatGPT answers on issue #5 (Q-001..Q-010). Daily 06:17 UTC pass keeps bhavcopy, financials, price repair and grading moving.
+Priority 3: India DRHP/RHP financial extraction.
 
 ## Next task
-RC-001 review checkpoint on issue #5; then Phase 27/28 external questions remain open.
+Priority 5: re-run evaluation once India financials exist; forward grading continues daily.
 
 ## External blockers
 See PRODUCTION_GAPS.md "EXTERNAL". None block the public static product.

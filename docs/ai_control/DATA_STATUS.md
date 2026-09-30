@@ -1,5 +1,19 @@
 # DATA STATUS
 
+## 2026-09-30 update
+| Metric | India | US |
+|---|---|---|
+| Listed | 952 | 1,183 |
+| Symbols / ISIN | 947 / 952 | 1,157 / n.a. |
+| Offer price present | 952 / 952 (11 corrected from NSE past issues with listing-open confirmation) | 1,165 (18 missing) |
+| Performance present | 919 | 834 |
+| Point-in-time financials (prospectus) | none (DRHP/RHP parser pending) | 619 issuers: revenue 477, net income 563, cash flow 503 Listed rows |
+| Market regime at listing | 952 | 1,183 |
+
+Sources added: NSE past issues API (official final price and listing date), SEC prospectus summary tables, index closes (Tier 3) for market regime. XBRL comparatives are display/research only with their real filing date.
+
+---
+
 Updated 2026-09-29 07:19 UTC from `measurements/latest.json` (production snapshot after the Phase 2-11 backfills). Re-run `python scripts/measure_state.py` against the `data-state` snapshot to refresh.
 
 ## Coverage (before -> after this push)
