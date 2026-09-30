@@ -51,3 +51,13 @@ def test_new_listing_rereads_days_already_ingested(db):
     assert c["isins"] == 1 and c["bars_stored"] == 2
     assert db.query(PriceBar).filter_by(isin="INE1GYP01013", trade_date="2026-09-28").count() == 1
     assert nse_bhavcopy.backfill_new_listings(db, today=date(2026, 9, 29), fetch=fake, sleep=lambda s: None) == {"isins": 0}
+
+
+def test_listed_row_without_isin_gets_isin_from_master(db):
+    ipo = IPO(external_key="IN:AAK2", company="Aakaar Medical Technologies Limited", country="India", status="Listed",
+              symbol="AAKAAR", close_date="2026-09-23", listing_date="2026-09-26", board="SME")
+    db.add(ipo)
+    db.commit()
+    stats = resolve_india_symbols(db, masters=[_row()])
+    assert stats["LISTED_FROM_MASTER"] == 1
+    assert ipo.isin == "INE1GYP01013" and ipo.listing_date == "2026-09-26" and ipo.status == "Listed"

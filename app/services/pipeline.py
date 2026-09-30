@@ -477,14 +477,19 @@ def resolve_india_symbols(db:Session,masters:list|None=None,limit:int|None=None)
     candidates=db.scalars(select(IPO).where(IPO.country=="India",IPO.status.in_(("Listed","Open","Closed","Upcoming"))).order_by(IPO.id)).all()
     done=0
     for ipo in candidates:
-        if ipo.symbol and not ipo.isin and ipo.status in ("Open","Closed") and not ipo.listing_date:
-            # Live-feed issue that has since listed: the masters now carry its
-            # ISIN and official listing date, which unblocks forward grading.
+        if ipo.symbol and not ipo.isin and ipo.status in ("Open","Closed","Listed"):
+            # Live-feed issue that has since listed (possibly already marked
+            # Listed by NSE past issues, which carries no ISIN): the masters
+            # now carry its ISIN and official listing date, which is what the
+            # bhavcopy price store and forward grading key on.
             m,listed,why=index.listing_for_live_symbol(ipo.symbol,ipo.company,ipo.close_date)
             if m is not None:
-                ipo.isin=m.isin;ipo.listing_date=listed;ipo.status="Listed"
+                ipo.isin=m.isin
+                changes=[("isin",m.isin)]
+                if not ipo.listing_date:ipo.listing_date=listed;changes.append(("listing_date",listed))
+                if ipo.status!="Listed":ipo.status="Listed";changes.append(("status","Listed"))
                 if m.board and ipo.board!=m.board:ipo.board=m.board;stats["board_fixed"]+=1
-                for f,v in (("isin",m.isin),("listing_date",listed),("status","Listed")):add_provenance(db,ipo,f,v,m.source_name,m.source_url,1)
+                for f,v in changes:add_provenance(db,ipo,f,v,m.source_name,m.source_url,1)
                 _set_flag(ipo,_SYMBOL_FLAG_PREFIX,None)
                 ipo.updated_at=now()
                 stats["LISTED_FROM_MASTER"]=stats.get("LISTED_FROM_MASTER",0)+1
