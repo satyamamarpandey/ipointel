@@ -147,18 +147,19 @@ def store_rows(db: Session, rows: list[dict], isins_of_interest: set[str]) -> in
 
 
 def ingest_days(db: Session, isins_of_interest: set[str], start: date, end: date, max_files: int = 100,
-                fetch=fetch_day, sleep=time.sleep, retry_errors: bool = True) -> dict:
+                fetch=fetch_day, sleep=time.sleep, retry_errors: bool = True, force: bool = False) -> dict:
     """Fetch every business day in [start, end] not already recorded in
     bhavcopy_days (an 'error' day is retried when retry_errors), storing bars
     for isins_of_interest only. Commits per day. Bounded by max_files actual
-    fetches. Returns counts."""
+    fetches. force re-reads days already recorded "ok" (for ISINs learned
+    after those days were ingested); holidays are never re-read. Returns counts."""
     counts = {"fetched": 0, "ok": 0, "holiday": 0, "error": 0, "skipped": 0, "bars_stored": 0}
     done = ingested_days(db)
     with httpx.Client(headers=_UA, timeout=60, follow_redirects=True) as client:
         for day in business_days(start, end):
             key = day.isoformat()
             prior = done.get(key)
-            if prior in ("ok", "holiday") or (prior == "error" and not retry_errors):
+            if prior == "holiday" or (prior == "ok" and not force) or (prior == "error" and not retry_errors):
                 counts["skipped"] += 1
                 continue
             if counts["fetched"] >= max_files:
@@ -190,6 +191,28 @@ def ingest_days(db: Session, isins_of_interest: set[str], start: date, end: date
                 counts["error"] += 1
             sleep(POLITE_SLEEP_SECONDS)
     return counts
+
+
+NEW_LISTING_LOOKBACK_DAYS = 45
+
+
+def backfill_new_listings(db: Session, today: date | None = None, max_files: int = 35, fetch=fetch_day,
+                          sleep=time.sleep) -> dict:
+    """India rows that listed recently but have no bars yet (their ISIN was
+    resolved after the listing day was ingested): re-read the bhavcopies
+    from the earliest such listing date for those ISINs only."""
+    from ..models import IPO
+    today = today or datetime.now(timezone.utc).date()
+    lo = (today - timedelta(days=NEW_LISTING_LOOKBACK_DAYS)).isoformat()
+    rows = db.scalars(select(IPO).where(IPO.country == "India", IPO.status == "Listed", IPO.isin != "",
+                                        IPO.listing_date >= lo)).all()
+    have = set(db.scalars(select(PriceBar.isin).where(PriceBar.isin.in_([r.isin for r in rows]))).all()) if rows else set()
+    missing = [r for r in rows if r.isin not in have]
+    if not missing:
+        return {"isins": 0}
+    start = date.fromisoformat(min(r.listing_date[:10] for r in missing))
+    counts = ingest_days(db, {r.isin for r in missing}, start, today, max_files=max_files, fetch=fetch, sleep=sleep, force=True)
+    return {"isins": len(missing), **counts}
 
 
 def bars_for_isin(db: Session, isin: str) -> list[dict]:

@@ -60,6 +60,7 @@ def main() -> int:
             try:
                 isins = {i for i in db.scalars(select(IPO.isin).where(IPO.country == "India", IPO.isin != "")).all()}
                 today = date.today()
+                print(f"nse bhavcopy new listings: {nse_bhavcopy.backfill_new_listings(db)}")
                 print(f"nse bhavcopy: {nse_bhavcopy.ingest_days(db, isins, today - timedelta(days=BHAVCOPY_LOOKBACK_DAYS), today, max_files=BHAVCOPY_MAX_FILES)}")
                 print(f"nse bhavcopy pruned: {nse_bhavcopy.prune_bars(db, nse_bhavcopy.listing_dates_by_isin(db))}")
             except Exception as e:

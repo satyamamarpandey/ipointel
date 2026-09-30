@@ -14,10 +14,11 @@ is worse than no history at all.
 import csv
 import io
 from dataclasses import dataclass
+from datetime import date
 
 import httpx
 
-from .identity import canonical_name
+from .identity import canonical_name, normalize_date
 from .net_safety import validate_outbound_url
 
 EQUITY_MASTER_URL = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
@@ -31,6 +32,9 @@ SOURCE_SME = "NSE SME equity master"
 # ISIN suffix (last three characters) changes on a face-value change / split;
 # the first nine characters identify the issuer and stay put.
 ISIN_ISSUER_PREFIX_LEN = 9
+# A live issue lists within about a week of closing (T+3 in India); a master
+# row dated far outside that window is a different listing of the symbol.
+LISTING_WINDOW_DAYS = 30
 
 RESOLVED_ISIN = "RESOLVED_ISIN"
 RESOLVED_NAME_ISIN_PREFIX = "RESOLVED_NAME_ISIN_PREFIX"
@@ -154,6 +158,28 @@ class MasterIndex:
         if not m.isin or m.isin[:7] != isin[:7]:
             return None, f"master ISIN {m.isin} is a different issuer than {isin}"
         return m, f"non-equity ISIN {isin} (instrument type {isin[7:9]}) replaced by equity ISIN {m.isin} of the same issuer, symbol {m.symbol}"
+
+    def listing_for_live_symbol(self, symbol: str, company: str, close_date: str,
+                                max_days_after_close: int = LISTING_WINDOW_DAYS) -> tuple[MasterRow | None, str, str]:
+        """A live issue (symbol from the NSE live feed, no ISIN yet) that now
+        appears in the masters has listed. Accepted only when exactly one
+        master row carries the symbol, the issuer name matches exactly
+        (canonical form), and the master's DATE OF LISTING falls within
+        max_days_after_close days after the subscription close. Returns
+        (row, listing date YYYY-MM-DD, reason) or (None, "", reason)."""
+        rows = self._distinct(self.by_symbol.get((symbol or "").upper().strip(), []))
+        if len(rows) != 1:
+            return None, "", "symbol not in masters" if not rows else "symbol maps to several master rows"
+        m = rows[0]
+        if canonical_name(m.name) != canonical_name(company):
+            return None, "", f"master name '{m.name}' does not match issuer"
+        listed, close = normalize_date(m.date_of_listing), normalize_date(close_date)
+        if not listed or not close:
+            return None, "", "listing or close date missing"
+        gap = (date.fromisoformat(listed) - date.fromisoformat(close)).days
+        if not 0 <= gap <= max_days_after_close:
+            return None, "", f"master listing date {listed} is {gap} days from close {close}"
+        return m, listed, f"{m.symbol} listed {listed} per {m.source_name} ({gap} days after close)"
 
     def check_symbol(self, isin: str, symbol: str) -> tuple[bool | None, str]:
         """For rows that already carry a symbol: True agree / False disagree /

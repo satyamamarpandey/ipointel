@@ -493,9 +493,15 @@ def evaluate_market(rows: list[Row], country: str, dataset: str = DATASET_PRODUC
 
 
 def forward_graded_by_country(db: Session) -> dict[str, int]:
-    from .forward_grading import GRADED, forward_ledger, ledger_counts
-    by_country = ledger_counts(forward_ledger(db))["by_country"]
-    return {c: v.get(GRADED, 0) for c, v in by_country.items()}
+    """Distinct IPOs with at least one GRADED genuine forward prediction, per
+    market. An IPO scored at several event stages counts once: the stages
+    share one outcome, so they are not independent evidence."""
+    from .forward_grading import GRADED, forward_ledger
+    ipos: dict[str, set[int]] = {}
+    for row in forward_ledger(db):
+        if row["category"] == GRADED:
+            ipos.setdefault(row.get("country") or "?", set()).add(row["ipo_id"])
+    return {c: len(v) for c, v in ipos.items()}
 
 
 def evaluate(db: Session) -> dict:

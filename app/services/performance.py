@@ -1,4 +1,5 @@
 from __future__ import annotations
+import math
 """Bulk / backfill path for post-listing market performance, with an explicit
 attempt state per IPO row.
 
@@ -39,6 +40,8 @@ STATUS_OFFER_SUSPECT = "offer_price_suspect"
 # essentially unheard of. A stored price that the same report row's issue size
 # / shares confirms is trusted whatever the ratio.
 OPEN_RATIO_MIN = 0.5
+PAST_ISSUE_PRICE_KEY = "nse_past_issue_price"
+PAST_ISSUE_EVIDENCE = "NSE past issues"
 OPEN_RATIO_MAX = {"SME": 5.5, "Mainboard": 3.0}
 IMPLIED_PRICE_TOLERANCE = 0.05
 
@@ -72,6 +75,15 @@ def offer_price_check(ipo: IPO, listing_open: float | None) -> tuple[str, float 
         return "ok", None, ""
     ratio = listing_open / fp
     hi = OPEN_RATIO_MAX.get(ipo.board or "Mainboard", 3.0)
+    official = (ipo.raw or {}).get(PAST_ISSUE_PRICE_KEY) if isinstance(ipo.raw, dict) else None
+    if isinstance(official, (int, float)) and official > 0 and abs(official / fp - 1) > 0.01:
+        # NSE's per-issue record disagrees with the stored (monthly report)
+        # price. Correct only when the listing-day open sits closer to the
+        # official price and within the plausible range for the board.
+        o_ratio = listing_open / official
+        if OPEN_RATIO_MIN <= o_ratio <= hi and abs(math.log(o_ratio)) < abs(math.log(ratio)):
+            return "corrected", float(official), (f"{PAST_ISSUE_EVIDENCE}: NSE per-issue price {official:g}, stored {fp:g}, "
+                                                  f"listing-day open {listing_open:g} (ratio {o_ratio:.2f} vs {ratio:.2f})")
     if OPEN_RATIO_MIN <= ratio <= hi:
         return "ok", None, ""
     implied = implied_offer_price(ipo)
@@ -191,7 +203,9 @@ def refresh_one(db: Session, ipo: IPO, bench_cache: dict[str, dict], today: date
         from .pipeline import add_provenance, _set_flag
         raw = dict(ipo.raw or {}); raw.setdefault("final_price_as_reported", ipo.final_price); ipo.raw = raw
         ipo.final_price = corrected
-        add_provenance(db, ipo, "final_price", corrected, "Derived: NSE report issue size / shares (listing-open confirmed)", h.get("url", ""), 1)
+        label = ("NSE past issues API (listing-open confirmed)" if evidence.startswith(PAST_ISSUE_EVIDENCE)
+                 else "Derived: NSE report issue size / shares (listing-open confirmed)")
+        add_provenance(db, ipo, "final_price", corrected, label, h.get("url", ""), 1)
         _set_flag(ipo, "offer_price_check", f"offer_price_check: corrected: {evidence}")
         wr = market.windowed_returns(bars, listing_dt, issue_price=ipo.final_price, splits=h.get("splits"))
     elif verdict == "suspect":

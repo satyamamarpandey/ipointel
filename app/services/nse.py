@@ -13,6 +13,15 @@ def _num(v):
     if isinstance(v,(int,float)):return float(v)
     m=re.search(r"-?\d+(?:\.\d+)?",str(v).replace(",","").replace("₹",""));return float(m.group()) if m else None
 
+def _band(v)->tuple[float|None,float|None]:
+    """NSE prints the price as "Rs.78 to Rs.82" (book-built band) or "Rs.95"
+    (fixed price). Returns (low, high); a fixed price gives low == high."""
+    if v in (None,"","-","--"):return None,None
+    if isinstance(v,(int,float)):return float(v),float(v)
+    nums=[float(x) for x in re.findall(r"\d+(?:\.\d+)?",str(v).replace(",",""))]
+    if not nums:return None,None
+    return min(nums[:2]),max(nums[:2])
+
 def _board(*hints)->str:
     joined=" ".join(str(h or "") for h in hints).lower()
     return "SME" if ("sme" in joined or "emerge" in joined) else "Mainboard"
@@ -40,14 +49,17 @@ def normalize(d:dict,status="Upcoming"):
             if d.get(k) not in (None, "", "-", "--"):
                 return _num(d.get(k))
         return None
+    band=_band(d.get("issuePrice"))
     return {
       "company":company,"symbol":symbol,"isin":str(d.get("isin") or ""),"country":"India","exchange":"NSE/BSE",
       # NSE's live feed says "EQ" for a mainboard equity issue and "SME" for
       # an Emerge issue - "EQ" is a series code, not a board name.
       "board":_board(d.get("issueType"),d.get("series"),d.get("board"),d.get("category")),
       "status":status,"sector":str(d.get("industry") or d.get("sector") or "Unknown"),"currency":"INR",
-      "price_low":_num(d.get("issuePriceMin") or d.get("priceBandMin") or d.get("minPrice") or d.get("floorPrice")),
-      "price_high":_num(d.get("issuePriceMax") or d.get("priceBandMax") or d.get("maxPrice") or d.get("capPrice") or d.get("issuePrice")),
+      "price_low":_num(d.get("issuePriceMin") or d.get("priceBandMin") or d.get("minPrice") or d.get("floorPrice")) or band[0],
+      "price_high":_num(d.get("issuePriceMax") or d.get("priceBandMax") or d.get("maxPrice") or d.get("capPrice")) or band[1],
+      # A single printed price is a fixed-price issue: that IS the offer price.
+      **({"final_price":band[0]} if band[0] is not None and band[0]==band[1] and not any(d.get(k) for k in ("issuePriceMin","priceBandMin","minPrice","floorPrice","issuePriceMax","priceBandMax","maxPrice","capPrice")) else {}),
       "lot_size":int(_num(d.get("marketLot") or d.get("lotSize") or d.get("minimumBidQuantity")) or 0) or None,
       "total_sub":total,"qib_sub":anynum("qibSubscription","qib","qibSub","qibNoOfTime"),"nii_sub":anynum("niiSubscription","hniSubscription","nii","niiSub","niiNoOfTime"),"retail_sub":anynum("retailSubscription","retail","retailSub","retailNoOfTime"),"open_date":str(d.get("issueStartDate") or d.get("openDate") or ""),"close_date":str(d.get("issueEndDate") or d.get("closeDate") or ""),
       "shares_offered_m":offered/1_000_000 if offered and offered>100_000 else offered,"raw":d
@@ -104,6 +116,31 @@ def fetch_current():
                     rows.append(x)
             except Exception as e:warnings.append(f"NSE {label}: {type(e).__name__}: {e}")
     return rows,warnings
+
+PAST_ISSUES_URL=f"{BASE}/api/public-past-issues"
+PAST_ISSUE_EQUITY_TYPES={"EQ","BE","SME","SM","ST"}
+
+def normalize_past_issue(d:dict)->dict|None:
+    """One row of NSE's past-issues list (official): final issue price and
+    listing date for an equity issue. None for debt and other instruments."""
+    from .identity import normalize_date
+    sym=str(d.get("symbol") or "").strip().upper()
+    stype=str(d.get("securityType") or "").strip().upper()
+    if not sym or stype not in PAST_ISSUE_EQUITY_TYPES:return None
+    lo,hi=_band(d.get("priceRange"))
+    return {"symbol":sym,"company":str(d.get("company") or d.get("companyName") or "").strip(),
+            "close_date":normalize_date(d.get("ipoEndDate")),"open_date":normalize_date(d.get("ipoStartDate")),
+            "listing_date":normalize_date(d.get("listingDate")),"final_price":_num(d.get("issuePrice")),
+            "price_low":lo,"price_high":hi,"security_type":stype}
+
+def fetch_past_issues()->list[dict]:
+    headers={"User-Agent":"Mozilla/5.0 IPOIntelligence/2.0","Accept":"application/json,text/plain,*/*","Referer":f"{BASE}/market-data/all-upcoming-issues-ipo"}
+    with httpx.Client(headers=headers,timeout=30,follow_redirects=True) as c:
+        try:c.get(BASE)
+        except Exception:pass
+        r=c.get(PAST_ISSUES_URL);r.raise_for_status()
+        data=r.json()
+    return [x for x in (normalize_past_issue(d) for d in (data if isinstance(data,list) else extract_list(data))) if x]
 
 def archive_links(html:str):
     soup=BeautifulSoup(html,"html.parser"); out=[]

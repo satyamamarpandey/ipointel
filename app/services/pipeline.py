@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 import re
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import select, func
@@ -83,6 +84,86 @@ def _set_flag(ipo:IPO,prefix:str,flag:str|None)->bool:
     if flags!=(ipo.data_flags or []):
         ipo.data_flags=flags;return True
     return False
+
+PAST_ISSUES_SOURCE="NSE past issues API"
+PAST_ISSUE_PRICE_CONFLICT_FLAG="offer_price_conflict: NSE past issues"
+PAST_ISSUE_BAND_TOLERANCE=0.05
+PAST_ISSUE_FOLLOW_ON_DAYS=365
+
+def apply_nse_past_issues(db:Session,items:list[dict],today=None)->dict:
+    """Fill the official final issue price and listing date from NSE's
+    past-issues list. A row matches only on exact symbol AND (same close date
+    OR exact canonical issuer name), because symbols are reused over years.
+    A final price is accepted only inside the printed band (+/-5%). A stored
+    price that differs by more than 1% is never overwritten: it is flagged."""
+    from . import performance
+    today=today or now().date().isoformat()
+    by_symbol:dict[str,list[IPO]]={}
+    for ipo in db.scalars(select(IPO).where(IPO.country=="India",IPO.symbol!="",IPO.status.notin_(("Not IPO","Withdrawn")))).all():
+        by_symbol.setdefault(ipo.symbol.upper(),[]).append(ipo)
+    conflicted:list[IPO]=[]
+    stats={"items":len(items),"matched":0,"final_price_filled":0,"listing_date_filled":0,"listed":0,"price_conflict":0,"outside_band":0,"possible_follow_on":0}
+    for it in items:
+        same_name=[r for r in by_symbol.get(it["symbol"],[]) if canonical_name(r.company) and canonical_name(r.company)==canonical_name(it["company"])]
+        rows=[r for r in by_symbol.get(it["symbol"],[]) if it["close_date"] and normalize_date(r.close_date)==it["close_date"]]
+        rows+=[r for r in same_name if not r.close_date and r not in rows]
+        for r in same_name:
+            # Same issuer, but NSE lists its IPO as closing long before this
+            # row's offering: this row is probably a later (non-IPO) issue.
+            rc=normalize_date(r.close_date)
+            if it["close_date"] and rc and abs((datetime.fromisoformat(rc)-datetime.fromisoformat(it["close_date"])).days)>PAST_ISSUE_FOLLOW_ON_DAYS:
+                if _set_flag(r,"possible_follow_on:",f"possible_follow_on: NSE past issues lists the {it['symbol']} IPO closing {it['close_date']}"):stats["possible_follow_on"]+=1
+        if len(rows)!=1:continue
+        ipo=rows[0];stats["matched"]+=1
+        fp=it.get("final_price")
+        if fp:
+            lo,hi=it.get("price_low"),it.get("price_high")
+            if lo and hi and not (lo*(1-PAST_ISSUE_BAND_TOLERANCE)<=fp<=hi*(1+PAST_ISSUE_BAND_TOLERANCE)):
+                stats["outside_band"]+=1
+            elif ipo.final_price is None:
+                ipo.final_price=fp;add_provenance(db,ipo,"final_price",fp,PAST_ISSUES_SOURCE,nse.PAST_ISSUES_URL,1);stats["final_price_filled"]+=1;ipo.updated_at=now()
+            elif abs(ipo.final_price-fp)>0.01*fp:
+                # Kept, not overwritten: the performance refresh corrects it
+                # only when the listing-day open confirms the official price.
+                raw=dict(ipo.raw or {})
+                if raw.get(performance.PAST_ISSUE_PRICE_KEY)!=fp:raw[performance.PAST_ISSUE_PRICE_KEY]=fp;ipo.raw=raw
+                _set_flag(ipo,"offer_price_conflict:",f"{PAST_ISSUE_PRICE_CONFLICT_FLAG} says {fp:g}, stored {ipo.final_price:g}");stats["price_conflict"]+=1
+                if ipo.status=="Listed":conflicted.append(ipo)
+        ld=it.get("listing_date")
+        if ld and not ipo.listing_date:
+            ipo.listing_date=ld;add_provenance(db,ipo,"listing_date",ld,PAST_ISSUES_SOURCE,nse.PAST_ISSUES_URL,1);stats["listing_date_filled"]+=1;ipo.updated_at=now()
+        if ld and ld<=today and ipo.status in ("Open","Closed") and status_can_transition(ipo.status,"Listed"):
+            ipo.status="Listed";add_provenance(db,ipo,"status","Listed",PAST_ISSUES_SOURCE,nse.PAST_ISSUES_URL,1);stats["listed"]+=1;ipo.updated_at=now()
+    bench:dict={}
+    for ipo in conflicted:
+        try:
+            st=performance.refresh_one(db,ipo,bench)
+            stats[f"recheck_{st}"]=stats.get(f"recheck_{st}",0)+1
+        except Exception as e:  # never fatal: the flag stays for the next pass
+            stats["recheck_error"]=stats.get("recheck_error",0)+1;logging.getLogger(__name__).warning("past-issue recheck %s failed: %s",ipo.id,e)
+    stats["corrected"]=sum(1 for i in conflicted if any(str(f).startswith("offer_price_check: corrected") for f in (i.data_flags or [])))
+    return stats
+
+def repair_nse_price_bands(db:Session)->int:
+    """Idempotent: India live-feed rows stored before the band parser kept
+    only the first number of "Rs.78 to Rs.82" as price_high. Re-derive the
+    band from the stored NSE payload; a single printed price is a fixed-price
+    issue and becomes the offer price when none is recorded."""
+    from .nse import _band
+    n=0
+    for ipo in db.scalars(select(IPO).where(IPO.country=="India")).all():
+        raw=ipo.raw if isinstance(ipo.raw,dict) else {}
+        text=raw.get("issuePrice")
+        if not isinstance(text,str) or not text.strip():continue
+        lo,hi=_band(text)
+        if lo is None:continue
+        changed=False
+        for f,v in (("price_low",lo),("price_high",hi)):
+            if getattr(ipo,f)!=v:setattr(ipo,f,v);add_provenance(db,ipo,f,v,"NSE live issue API (price band)","",1);changed=True
+        if lo==hi and ipo.final_price is None:
+            ipo.final_price=lo;add_provenance(db,ipo,"final_price",lo,"NSE live issue API (fixed-price issue)","",1);changed=True
+        if changed:ipo.updated_at=now();n+=1
+    return n
 
 def repair_dates(db:Session)->int:
     """Idempotent normalisation of every stored date column to YYYY-MM-DD
@@ -396,6 +477,20 @@ def resolve_india_symbols(db:Session,masters:list|None=None,limit:int|None=None)
     candidates=db.scalars(select(IPO).where(IPO.country=="India",IPO.status.in_(("Listed","Open","Closed","Upcoming"))).order_by(IPO.id)).all()
     done=0
     for ipo in candidates:
+        if ipo.symbol and not ipo.isin and ipo.status in ("Open","Closed") and not ipo.listing_date:
+            # Live-feed issue that has since listed: the masters now carry its
+            # ISIN and official listing date, which unblocks forward grading.
+            m,listed,why=index.listing_for_live_symbol(ipo.symbol,ipo.company,ipo.close_date)
+            if m is not None:
+                ipo.isin=m.isin;ipo.listing_date=listed;ipo.status="Listed"
+                if m.board and ipo.board!=m.board:ipo.board=m.board;stats["board_fixed"]+=1
+                for f,v in (("isin",m.isin),("listing_date",listed),("status","Listed")):add_provenance(db,ipo,f,v,m.source_name,m.source_url,1)
+                _set_flag(ipo,_SYMBOL_FLAG_PREFIX,None)
+                ipo.updated_at=now()
+                stats["LISTED_FROM_MASTER"]=stats.get("LISTED_FROM_MASTER",0)+1
+            else:
+                stats["live_not_yet_in_master"]=stats.get("live_not_yet_in_master",0)+1
+            continue
         if ipo.symbol:
             ok,note=index.check_symbol(ipo.isin,ipo.symbol)
             if ok is None:
@@ -561,13 +656,29 @@ def refresh_market_performance(db:Session,limit=40):
     counts=performance.refresh_many(db,limit=limit,only_missing=False)
     return int(counts.get("ok",0))+int(counts.get("implausible",0))
 
+def ingest_nse_past_issues(db:Session,fetch=None)->IngestionRun:
+    """Official final issue price and listing date for India issues (one
+    request). Non-fatal: a failure leaves an error run and changes nothing."""
+    run=IngestionRun(source=PAST_ISSUES_SOURCE,status="running");db.add(run);db.commit()
+    try:
+        items=(fetch or nse.fetch_past_issues)()
+        stats=apply_nse_past_issues(db,items)
+        run.status="ok";run.rows_seen=len(items)
+        run.rows_changed=stats["final_price_filled"]+stats["listing_date_filled"]+stats["listed"]+stats.get("corrected",0)
+        run.metadata_json=stats
+    except Exception as e:
+        db.rollback();run=db.merge(run);run.status="error";run.error=f"{type(e).__name__}: {e}"[:500]
+    run.finished_at=now();db.commit()
+    return run
+
 def refresh_all(db:Session):
     repair_company_names(db)
     repair_dates(db)
+    repair_nse_price_bands(db)
     from . import xbrl_financials
     xbrl_financials.restore_publication_dates(db)
     reconcile_lifecycle(db)
-    runs=[ingest_sec(db),ingest_sec_priced(db),ingest_nse(db)]
+    runs=[ingest_sec(db),ingest_sec_priced(db),ingest_nse(db),ingest_nse_past_issues(db)]
     if get_settings().secondary_enrichment_url:runs.append(ingest_secondary_enrichment(db))
     reconcile_lifecycle(db)
     return runs

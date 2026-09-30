@@ -108,8 +108,12 @@ def sync_prediction_outcomes(db: Session, limit: int = 60, today: date | None = 
         # Same ticker candidates as the performance backfill (SPAC units are
         # "XXXX-UN" on Yahoo, NSE SME issues "SYMBOL-SM.NS"), so the grader and
         # the history explorer can never disagree about whether a series exists.
+        # India grades from the official NSE bhavcopy bars first (A-004);
+        # Yahoo is only the fallback when no official bars are stored.
         try:
-            h, _sym_used = performance.fetch_history(ipo)
+            h = performance.official_history(db, ipo)
+            if h is None:
+                h, _sym_used = performance.fetch_history(ipo)
             h = h or {"prices": [], "url": "", "splits": []}
         except Exception as e:
             h = {"prices": [], "url": "", "splits": [], "error": f"{type(e).__name__}"}

@@ -198,3 +198,25 @@ def test_identical_reingest_creates_no_duplicate_snapshot(db):
     # a subscription tick that does not move the score is not a prediction event
     upsert_ipo(db, {**row, "total_sub": 1.2343}, "NSE", "https://nseindia.com/x", 1); db.commit()
     assert len(db.scalars(select(ScoreSnapshot)).all()) == 1
+
+
+def test_india_grades_from_official_bars_without_calling_yahoo(db, monkeypatch):
+    from app.services import performance
+    ipo = _ipo(external_key="IN:LUMINO", country="India", symbol="LUMINO", isin="INE185Q01025", listing_date="2026-09-03", final_price=82.0, board="Mainboard")
+    db.add(ipo)
+    db.commit()
+    db.add(_snap(ipo.id))
+    db.commit()
+    day = lambda d: datetime(2026, 9, d, tzinfo=timezone.utc).timestamp()  # noqa: E731
+    bars = [{"ts": day(d), "open": 90.0 + d, "close": 92.0 + d, "high": 95.0 + d, "low": 88.0 + d} for d in range(3, 26)]
+    monkeypatch.setattr(performance, "official_history", lambda db_, i: {"prices": bars, "url": "https://nsearchives.nseindia.com/x.zip", "splits": None})
+
+    def no_yahoo(*a, **k):
+        raise AssertionError("Yahoo must not be called when official bars exist")
+
+    monkeypatch.setattr(performance, "fetch_history", no_yahoo)
+    monkeypatch.setattr(outcomes_svc.market, "fetch_benchmark_history", lambda country: None)
+    r = outcomes_svc.sync_prediction_outcomes(db, today=TODAY)
+    assert r["graded"] == 1
+    o = db.scalar(select(PredictionOutcome).where(PredictionOutcome.ipo_id == ipo.id))
+    assert o.source_name.startswith("https://nsearchives.nseindia.com")
