@@ -30,3 +30,6 @@ backups/
 # sibling FreeResend checkout for docker-compose.email.yml
 freeresend/
 tests_browser/qa_pages_static_report.json
+# local RHP page-text and SEC filing caches (re-buildable, large)
+data/rhp_cache/
+data/prospectus_cache/
