@@ -505,10 +505,16 @@ def build(out_dir: Path, base_url: str, waitlist_endpoint: str) -> dict:
         urls.append(canonical)
 
     (out_dir / "CNAME").write_text(base_url.replace("https://", "").replace("http://", "").rstrip("/") + "\n", encoding="utf-8")
-    (out_dir / "robots.txt").write_text(f"User-agent: *\nAllow: /\nDisallow: /login/\nSitemap: {base_url}/sitemap.xml\n", encoding="utf-8")
+    # Crawler policy per the Brandsap entity spec: every named group repeats the private-path
+    # disallow because a named group replaces (not extends) the * group.
+    groups = ["*"] + CRAWLER_AGENTS
+    robots = "\n".join(f"User-agent: {ua}\nAllow: /\nDisallow: /login/\n" for ua in groups)
+    (out_dir / "robots.txt").write_text(f"{robots}\nSitemap: {base_url}/sitemap.xml\n", encoding="utf-8")
+    shutil.copy2(STATIC / "llms.txt", out_dir / "llms.txt")
     sitemap = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     for u in urls:
-        sitemap.append(f"<url><loc>{u}</loc></url>")
+        lm = source_lastmod(u.removeprefix(base_url))
+        sitemap.append(f"<url><loc>{u}</loc>" + (f"<lastmod>{lm}</lastmod>" if lm else "") + "</url>")
     sitemap.append("</urlset>")
     (out_dir / "sitemap.xml").write_text("\n".join(sitemap), encoding="utf-8")
 
@@ -562,6 +568,25 @@ def em_dash_scan(out_dir: Path) -> list[str]:
         if "\u2014" in text:
             hits.append(str(f.relative_to(out_dir)))
     return hits
+
+
+CRAWLER_AGENTS = ["Googlebot", "Bingbot", "OAI-SearchBot", "ChatGPT-User", "GPTBot", "ClaudeBot", "Claude-SearchBot",
+                  "Claude-User", "PerplexityBot", "Perplexity-User", "Google-Extended", "Applebot"]
+_SOURCE_FOR_ROUTE = {"/": "index.html", "/privacy": "privacy.html", "/terms": "terms.html"}
+
+
+def source_lastmod(route: str) -> str:
+    """Date of the last git commit touching the route's source file. Generated pages
+    (dashboard, per-IPO) have no stable source date, so they get no lastmod."""
+    fn = _SOURCE_FOR_ROUTE.get(route)
+    if not fn:
+        return ""
+    try:
+        out = subprocess.run(["git", "log", "-1", "--format=%cI", "--", f"app/static/{fn}"],
+                             cwd=ROOT, capture_output=True, text=True, timeout=20).stdout.strip()
+    except Exception:
+        return ""
+    return out[:10]
 
 
 def main():

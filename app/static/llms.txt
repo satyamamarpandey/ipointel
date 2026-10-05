@@ -1,0 +1,19 @@
+# IPO Intelligence (IPOIntel)
+
+> IPOIntel is evidence-first IPO research for India and the United States: filings, valuation, institutional demand and historical evidence, with separate listing-gain and long-term signals. It is research and decision support only, not investment advice. IPOIntel is a Brandsap product, built by Satyam Pandey.
+
+Live site: https://ipointel.brandsap.com/
+
+## Key pages
+
+- [Home](https://ipointel.brandsap.com/): product overview, methodology and track record
+- [Dashboard](https://ipointel.brandsap.com/dashboard/): browse tracked IPOs
+- [Privacy](https://ipointel.brandsap.com/privacy)
+- [Terms](https://ipointel.brandsap.com/terms)
+- [Sitemap](https://ipointel.brandsap.com/sitemap.xml): includes one page per published IPO
+
+## Source and credit
+
+- Publisher: [Brandsap](https://brandsap.com/)
+- Creator: [Satyam Pandey](https://pandeysatyam.com/)
+- Code: https://github.com/satyamamarpandey/ipointel

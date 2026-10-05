@@ -270,16 +270,17 @@ def test_landing_page_ships_valid_structured_data(build_dist):
     crawlers, which looks identical to having none at all."""
     html = (build_dist / "index.html").read_text(encoding="utf-8")
     block = html.split('<script type="application/ld+json">')[1].split("</script>")[0]
-    data = json.loads(block)
-    assert data["@type"] == "SoftwareApplication"
-    assert data["name"] == "IPOIntel"
-    assert data["url"] == "https://ipointel.brandsap.com/"
-    assert data["founder"]["name"] == "Satyam Pandey"
-    assert data["founder"]["@id"] == "https://pandeysatyam.com/#person"
-    for profile in ("https://pandeysatyam.com/", "https://brandsap.com/",
-                    "https://www.linkedin.com/in/pandeysatyam/",
-                    "https://github.com/satyamamarpandey"):
-        assert profile in data["sameAs"]
+    graph = {n["@id"]: n for n in json.loads(block)["@graph"]}
+    app = graph["https://ipointel.brandsap.com/#software"]
+    assert app["@type"] == "WebApplication"
+    assert app["url"] == "https://ipointel.brandsap.com/"
+    assert app["publisher"] == {"@id": "https://brandsap.com/#organization"}
+    assert app["provider"] == {"@id": "https://brandsap.com/#organization"}
+    assert app["creator"] == {"@id": "https://pandeysatyam.com/#satyam-pandey"}
+    assert graph["https://ipointel.brandsap.com/#website"]["@type"] == "WebSite"
+    assert graph["https://brandsap.com/#organization"]["name"] == "Brandsap"
+    assert graph["https://pandeysatyam.com/#satyam-pandey"]["name"] == "Satyam Pandey"
+    assert "https://pandeysatyam.com/#person" not in json.dumps(graph)
 
 
 def test_attribution_backlinks_are_followable_on_every_public_page(build_dist):
@@ -290,7 +291,7 @@ def test_attribution_backlinks_are_followable_on_every_public_page(build_dist):
     for page in pages:
         html = page.read_text(encoding="utf-8")
         for href in ("https://brandsap.com", "https://pandeysatyam.com"):
-            m = re.search(rf'<a href="{re.escape(href)}"[^>]*>', html)
+            m = re.search(rf'<a href="{re.escape(href)}/?"[^>]*>', html)
             assert m, f"{page.name} is missing the {href} backlink"
             anchor = m.group(0)
             assert 'target="_blank"' in anchor and "noopener" in anchor and "noreferrer" in anchor
@@ -310,3 +311,10 @@ def test_detail_artifacts_carry_a_permalink_that_resolves_to_a_built_page(build_
         assert f'data-ipo-id="{art.stem}"' in (build_dist / "ipo" / page["slug"] / "index.html").read_text(encoding="utf-8")
         checked += 1
     assert checked > 0
+
+
+def test_robots_named_crawler_groups_repeat_private_disallow_and_llms_txt_ships(build_dist):
+    robots = (build_dist / "robots.txt").read_text(encoding="utf-8")
+    for agent in ("Googlebot", "GPTBot", "ClaudeBot", "PerplexityBot", "Applebot"):
+        assert f"User-agent: {agent}\nAllow: /\nDisallow: /login/\n" in robots
+    assert (build_dist / "llms.txt").read_text(encoding="utf-8").startswith("# IPO Intelligence")
