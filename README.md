@@ -128,3 +128,7 @@ It drives the landing page and dashboard at 4 viewport widths (1440/1024/768/390
 exercises every tab, opens an IPO detail and its lazy-loaded panes, and runs the
 waitlist success/invalid/duplicate flows, failing on any console error, failed
 `/api/*` request, or >4px horizontal overflow.
+
+## Author
+
+Built by [Satyam Pandey](https://pandeysatyam.com/), founder of [Brandsap](https://brandsap.com/). Product: [IPO Intelligence](https://ipointel.brandsap.com/).
